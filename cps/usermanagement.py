@@ -8,6 +8,8 @@
 from functools import wraps
 
 from sqlalchemy.sql.expression import func
+from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.orm.exc import ObjectDeletedError
 from .cw_login import login_required
 
 from flask import request, g, make_response
@@ -95,6 +97,27 @@ def _verify_app_password(user, password):
             or _verify_app_password_older(user, password))
 
 
+def _fresh_user(user):
+    """The same User with its columns re-read from app.db, or None if the row is gone.
+
+    The app.db session is long-lived, so a User loaded by an earlier request kept
+    the values it had then: a password, role or account change written by another
+    process (an admin script, a second worker) was not seen. After a browser visit
+    a disabled reader could still download over OPDS, and a newly set password was
+    refused while the old one still worked. Every per-request account lookup goes
+    through this.
+    """
+    if user is None:
+        return None
+    try:
+        ub.session.refresh(user)
+    except ObjectDeletedError:
+        return None
+    except InvalidRequestError:
+        return user     # not attached to this session (a stand-in object): nothing to re-read
+    return user
+
+
 def _email_taken(email):
     return ub.session.query(ub.User).filter(func.lower(ub.User.email) == email.lower()).first() is not None
 
@@ -110,11 +133,15 @@ def _user_with_email(address):
         address = valid_email(address)
     except Exception:
         return None
-    return ub.session.query(ub.User).filter(func.lower(ub.User.email) == address.lower()).first()
+    return _fresh_user(ub.session.query(ub.User).filter(func.lower(ub.User.email) == address.lower()).first())
 
 
 def _auto_create_email(username, offered=None):
     """Pick the email for a user auto-created from proxy headers.
+
+    ``offered`` is an address a trusted caller already knows (an OIDC claim, an
+    admin import). It is tried first, with the same checks; the reverse-proxy
+    login never passes one.
 
     Uses the username when it is an email address. Header-auth proxies such as
     Cloudflare Access, Authelia and authentik put the address in the username
@@ -128,10 +155,6 @@ def _auto_create_email(username, offered=None):
     <username>@localhost, with any @ in the username turned into a dot: a double-@
     fails valid_email() on the next profile save, and the user could never set a
     password.
-
-    ``offered`` is an address a trusted caller already knows (an OIDC claim, an
-    admin import). It is tried first, with the same checks; the reverse-proxy
-    login never passes one.
     """
     from .helper import valid_email
     for candidate in ((offered or "").strip(), (username or "").strip()):
@@ -279,7 +302,7 @@ def verify_password(username, password):
     # browsing is enabled, otherwise return 401.
     if not username:
         return None
-    user = ub.session.query(ub.User).filter(func.lower(ub.User.name) == username.lower()).first()
+    user = _fresh_user(ub.session.query(ub.User).filter(func.lower(ub.User.name) == username.lower()).first())
 
     # Handle existing users
     if user:
@@ -414,7 +437,7 @@ def load_user_from_reverse_proxy_header(req):
         return None
 
     # Look for existing user first
-    user = ub.session.query(ub.User).filter(func.lower(ub.User.name) == rp_header_username.lower()).first()
+    user = _fresh_user(ub.session.query(ub.User).filter(func.lower(ub.User.name) == rp_header_username.lower()).first())
     if user:
         rate_limits.clear_current_limits(limiter)
         log.debug("Reverse proxy authentication: found existing user '%s'", user.name)
@@ -459,7 +482,7 @@ def load_user(user_id, random, session_key):
         # Handle potential invalid user_id
         if not user_id:
             return None
-        user = ub.session.query(ub.User).filter(ub.User.id == int(user_id)).first()
+        user = _fresh_user(ub.session.query(ub.User).filter(ub.User.id == int(user_id)).first())
         if not user:
             return None
             
