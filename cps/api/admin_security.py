@@ -43,7 +43,7 @@ from ..usermanagement import login_required_if_no_ano
 from .admin import _require_admin, _err
 from ..admin import (
     _config_int, _config_string, _config_checkbox,
-    _configuration_ldap_helper, _configuration_oauth_helper,
+    _configuration_ldap_helper, _configuration_oauth_helper, _cloudflare_access_error,
 )
 from .. import apply_https_runtime_config
 
@@ -181,8 +181,14 @@ def _security_payload():
             "enabled": bool(config.config_allow_reverse_proxy_header_login),
             "header_name": config.config_reverse_proxy_login_header_name or "",
             "auto_create_users": bool(config.config_reverse_proxy_auto_create_users),
+            "access_team_domain": config.config_reverse_proxy_access_team_domain or "",
+            "access_aud": config.config_reverse_proxy_access_aud or "",
         },
     }
+
+
+ACCESS_FIELDS = (("access_team_domain", "config_reverse_proxy_access_team_domain"),
+                 ("access_aud", "config_reverse_proxy_access_aud"))
 
 
 @api_v1.route("/admin/security")
@@ -391,7 +397,14 @@ def admin_update_security():
         if eff_auto and not eff_header:
             return _err("invalid_request",
                         "Auto-creating reverse-proxy users requires a header name", 400)
+        access = {field: str(rp[key] or "") for key, field in ACCESS_FIELDS if key in rp}
+        access_error = _cloudflare_access_error(access)
+        if access_error:
+            return _err("invalid_request", str(access_error), 400)
         put_bool("config_allow_reverse_proxy_header_login", rp.get("enabled"))
+        for field, value in access.items():
+            to_save[field] = value
+            _config_string(to_save, field)
         if "header_name" in rp:
             to_save["config_reverse_proxy_login_header_name"] = str(rp["header_name"] or "")
             _config_string(to_save, "config_reverse_proxy_login_header_name")
