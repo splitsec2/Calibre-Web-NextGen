@@ -54,6 +54,7 @@ def _fake_config(**over):
         config_remote_login=True,
         config_allow_reverse_proxy_header_login=False,
         config_reverse_proxy_login_header_name="", config_reverse_proxy_auto_create_users=False,
+        config_reverse_proxy_access_team_domain="", config_reverse_proxy_access_aud="",
     )
     base.update(over)
     ns = SimpleNamespace(**base)
@@ -229,6 +230,43 @@ def test_reverse_proxy_auto_without_enabled_rejected_before_mutation():
     assert resp[1] == 400
     # validation fired before we applied any reverse-proxy checkbox to config.
     checkbox_spy.assert_not_called()
+
+
+@pytest.mark.unit
+def test_get_exposes_cloudflare_access_fields():
+    from cps.api import admin_security as mod
+    from cps.api import admin as admin_mod
+    cfg = _fake_config(config_reverse_proxy_access_team_domain="https://t.cloudflareaccess.com",
+                       config_reverse_proxy_access_aud="abc123")
+    with _ctx(method="GET"):
+        with patch.object(admin_mod, "current_user", _admin()), \
+             patch.object(mod, "config", cfg), \
+             patch.object(mod, "_generic_oauth_row", _fake_generic_row), \
+             patch.object(mod, "_builtin_oauth_rows", _fake_builtin_rows):
+            resp = inspect.unwrap(mod.admin_get_security)()
+    rp = resp.get_json()["reverse_proxy"]
+    assert rp["access_team_domain"] == "https://t.cloudflareaccess.com"
+    assert rp["access_aud"] == "abc123"
+
+
+@pytest.mark.unit
+def test_cloudflare_access_team_without_aud_rejected_before_mutation():
+    """One of the two Access fields alone must 400 before any setting is applied."""
+    from cps.api import admin_security as mod
+    from cps.api import admin as admin_mod
+    import unittest.mock as um
+    string_spy = um.MagicMock(return_value=False)
+    cfg = _fake_config()
+    with _ctx(method="POST",
+              body={"reverse_proxy": {"access_team_domain": "https://t.cloudflareaccess.com"}}):
+        with patch.object(admin_mod, "current_user", _admin()), \
+             patch.object(mod, "config", cfg), \
+             patch("cps.admin.config", cfg), \
+             patch("cps.admin._", lambda m, **kw: m % kw if kw else m), \
+             patch.object(mod, "_config_string", string_spy):
+            resp = inspect.unwrap(mod.admin_update_security)()
+    assert resp[1] == 400
+    string_spy.assert_not_called()
 
 
 # ── OAuth group-based access control parity (#494/#495) ───────────────────────
