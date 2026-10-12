@@ -1,0 +1,65 @@
+name: Fork image (manual, amd64, GHCR only)
+
+# Builds one branch or SHA of this fork into ghcr.io/<owner>/calibre-web-nextgen:<tag>.
+# Fork-only helper: upstream's dev workflow is multi-arch and tied to upstream's
+# registry, secrets and base-image mirror, none of which exist on a fork.
+# Run:  gh workflow run fork-image.yml -R <owner>/Calibre-Web-NextGen \
+#         -f ref=<branch-or-sha> -f tag=<tag>
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or commit SHA to build"
+        required: true
+        type: string
+      tag:
+        description: "Image tag to publish (a sha-<short> tag is added too)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the requested ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Work out the image name and short SHA
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/calibre-web-nextgen" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$(git rev-parse --short=9 HEAD)" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ inputs.tag }}
+            ${{ env.IMAGE }}:sha-${{ env.SHORT_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=fork-${{ inputs.tag }}-${{ env.SHORT_SHA }}
+            PBS_SOURCE=upstream
