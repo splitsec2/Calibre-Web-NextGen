@@ -15,7 +15,7 @@ from flask_httpauth import HTTPBasicAuth
 from werkzeug.datastructures import Authorization
 from werkzeug.security import check_password_hash
 
-from . import lm, ub, config, logger, limiter, constants, services, rate_limits
+from . import lm, ub, config, logger, limiter, constants, services, rate_limits, cloudflare_access
 from .services import app_passwords
 from .ui_themes import config_theme_code
 from .ui_font_preferences import seed_new_user_ui_font_defaults
@@ -357,7 +357,10 @@ def load_user_from_reverse_proxy_header(req):
     rp_header_username = rp_header_username.strip()
     if not rp_header_username:
         return None
-    
+
+    if not cloudflare_access.header_login_permitted(req, rp_header_username, config):
+        return None
+
     # Look for existing user first
     user = ub.session.query(ub.User).filter(func.lower(ub.User.name) == rp_header_username.lower()).first()
     if user:
