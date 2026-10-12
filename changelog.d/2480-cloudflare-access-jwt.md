@@ -1,0 +1,3 @@
+### Added
+
+- **Header login can check the Cloudflare Access token.** Admin > Security (and the classic Configuration page) has two new optional fields under reverse-proxy login, the Cloudflare Access team domain and the application AUD tag. When both are set, a header login is only accepted if the request also carries a valid `Cf-Access-Jwt-Assertion` for that team and application, and its email matches the header. With either field empty nothing changes. The team domain is checked when saved, and a token whose signing keys can't be fetched refuses the login instead of erroring. Adds PyJWT. Offered in #2480.
