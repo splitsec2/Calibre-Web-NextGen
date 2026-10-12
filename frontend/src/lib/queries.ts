@@ -1030,7 +1030,8 @@ export interface SecurityConfig {
   };
   ssl: { use_https: boolean; certfile: string; keyfile: string };
   remote_login: boolean;
-  reverse_proxy: { enabled: boolean; header_name: string; auto_create_users: boolean };
+  reverse_proxy: { enabled: boolean; header_name: string; auto_create_users: boolean;
+    access_team_domain: string; access_aud: string };
   reboot_required?: boolean;
 }
 // The POST shape mirrors the GET shape but secrets are plain (write-only) fields.
@@ -1045,7 +1046,8 @@ export interface SecurityUpdate {
     providers?: { name: string; client_id?: string; client_secret?: string }[];
   };
   ssl?: { use_https?: boolean; certfile?: string; keyfile?: string };
-  reverse_proxy?: { enabled?: boolean; header_name?: string; auto_create_users?: boolean };
+  reverse_proxy?: { enabled?: boolean; header_name?: string; auto_create_users?: boolean;
+    access_team_domain?: string; access_aud?: string };
 }
 
 export function useSecurityConfig() {

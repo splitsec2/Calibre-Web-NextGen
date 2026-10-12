@@ -883,6 +883,14 @@ function SecurityConfigForm() {
           <label className={styles.checkField}><input type="checkbox" checked={f.reverse_proxy.auto_create_users}
             onChange={(e) => setRp('auto_create_users', e.target.checked)} /><span>{t('Auto-create users')}</span></label>
         </div>
+        <div className={styles.newRow}>
+          <label className={styles.field}><span>{t('Cloudflare Access team domain')}</span>
+            <input value={f.reverse_proxy.access_team_domain} onChange={(e) => setRp('access_team_domain', e.target.value)}
+              placeholder="https://yourteam.cloudflareaccess.com" autoComplete="off" /></label>
+          <label className={styles.field}><span>{t('Cloudflare Access AUD tag')}</span>
+            <input value={f.reverse_proxy.access_aud} onChange={(e) => setRp('access_aud', e.target.value)} autoComplete="off" /></label>
+        </div>
+        <p className={styles.fieldHint}>{t('Set both to check the signed Cloudflare Access token on every header login; the header must match the email in that token. Leave both empty to trust the header as before. A wrong AUD tag refuses every header login, so keep an admin account with a local password.')}</p>
       </fieldset>
 
       {reboot && (
