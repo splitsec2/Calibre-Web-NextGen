@@ -17,19 +17,24 @@ change in its image and keeps the rest as branches until upstream merges or decl
 | Optional Cloudflare Access JWT check on reverse-proxy header login. With a team domain and an AUD set in Admin > Security, a request that only carries the email header is refused and the signed `Cf-Access-Jwt-Assertion` is verified instead. Off until both fields are set | This fork, open upstream as issue [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480). Branch `feat/verify-cloudflare-access-jwt`, waiting on the maintainer's decision about the PyJWT dependency |
 | A manual amd64 image build to GHCR (`fork-image.yml`) | This fork. Fork only |
 
-### On branches, not in the image
+### On branches, running on my server as patch files
+
+The image carries only the JWT change. The three changes below are mounted over it as patch
+files on my server, and branch `fork/live-v4.1.47` is v4.1.47 with all of them (and the JWT
+commit) applied, so the live files have a source in the fork. #2426 and #2568 touch the same
+function, so that branch has them merged by hand.
 
 | Change | Origin |
 |---|---|
 | Reverse proxy auth: an auto-created user gets a valid email, and a header email that another account already has logs into that account (branch `fix/reverse-proxy-email-when-username-is-email`) | This fork, open upstream as [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) |
 | Every per-request account lookup re-reads the row, so a password or role set by another process is seen at once and a disabled account cannot keep downloading over OPDS (branch `fix/reread-account-each-request`) | This fork, open upstream as [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568), from issue [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) |
+| Smart metadata mode only fills a missing title or description instead of letting a longer one win, because a summary or study guide's title is nearly always longer than the book's (branch `fix/smart-mode-fill-only`, with tests that fail on v4.1.47) | This fork, not sent upstream yet. It went to Calibre-Web-Automated as [#1589](https://github.com/crocodilestick/calibre-web-automated/pull/1589) first |
 
 ### Not sent yet
 
 | Change | Origin |
 |---|---|
 | The New UI's Change password refuses an account created by reverse proxy login, because it has no password to confirm. Reported as [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572), the fix is not written | This fork, upstream candidate |
-| Smart metadata mode only fills an empty title or description instead of letting a longer one win | This fork, upstream candidate. It was sent to Calibre-Web-Automated as [#1589](https://github.com/crocodilestick/calibre-web-automated/pull/1589), not to NextGen |
 | In-book validation during ingest (checks the file's own title against the match before applying it) | Sent to Calibre-Web-Automated as [#1592](https://github.com/crocodilestick/calibre-web-automated/pull/1592), not ported to NextGen |
 
 ## Upstream first
@@ -63,14 +68,14 @@ Open:
 - [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
 - [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572) New UI password for proxy-created accounts (issue)
 
-The JWT check stays in the fork until upstream ships it or an equivalent. The two open PRs
-are mounted as patch files on my server instead of built in, so they leave when upstream
-merges them.
+The JWT check stays in the fork until upstream ships it or an equivalent. The patch files
+leave my server when upstream ships what they carry. Fill-only smart mode is the one change
+with no upstream PR yet.
 
 ## How it is maintained
 
-`main` is upstream's `main` plus the image workflow, merged forward from time to time. The
-image is built from a branch named for what it carries, `jwt-on-v4.1.47` being v4.1.47 with
+`main` is upstream's `main` plus the image workflow and this README, merged forward from
+time to time. The image is built from a branch named for what it carries, `jwt-on-v4.1.47` being v4.1.47 with
 the JWT commit on top, by running the workflow by hand:
 
 ```bash
