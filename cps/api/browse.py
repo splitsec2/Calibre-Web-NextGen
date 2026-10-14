@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Entity-list browse endpoints for /api/v1."""
-from flask import jsonify, request
+from ..unicode_collation import locale_sort_key
+from flask import abort, jsonify, request
 from flask_babel import gettext as _
 from sqlalchemy import func, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from . import api_v1
-from .. import calibre_db, db, helper
+from .. import calibre_db, constants, db, helper, tag_hierarchy
 from ..cw_login import current_user
 from ..services.calibre_db_lock import metadata_db_write_lock
 from ..usermanagement import login_required_if_no_ano
@@ -21,7 +22,7 @@ def list_authors():
             .join(db.Books)
             .filter(calibre_db.common_filters())
             .group_by(text('books_authors_link.author'))
-            .order_by(func.ng_sort_key(db.Authors.sort), db.Authors.sort, db.Authors.id)
+            .order_by(locale_sort_key(db.Authors.sort), db.Authors.sort, db.Authors.id)
             .all())
     items = [{"id": a.id, "name": a.name.replace("|", ","), "count": cnt} for a, cnt in rows]
     return {"items": items}
@@ -35,7 +36,7 @@ def list_series():
             .join(db.Books)
             .filter(calibre_db.common_filters())
             .group_by(text('books_series_link.series'))
-            .order_by(func.ng_sort_key(db.Series.sort), db.Series.sort, db.Series.id)
+            .order_by(locale_sort_key(db.Series.sort), db.Series.sort, db.Series.id)
             .all())
     items = [{"id": s.id, "name": s.name, "count": cnt} for s, cnt in rows]
     return {"items": items}
@@ -49,10 +50,23 @@ def list_tags():
             .join(db.Books)
             .filter(calibre_db.common_filters())
             .group_by(db.Tags.id)
-            .order_by(func.ng_sort_key(db.Tags.name), db.Tags.name, db.Tags.id)
+            .order_by(locale_sort_key(db.Tags.name), db.Tags.name, db.Tags.id)
             .all())
     items = [{"id": t.id, "name": t.name, "count": cnt} for t, cnt in rows]
     return {"items": items}
+
+
+@api_v1.route("/tags/tree")
+@login_required_if_no_ano
+def tag_tree():
+    """Configured built-in tag groups; the flat maintenance API stays intact."""
+    if not current_user.check_visibility(constants.SIDEBAR_CATEGORY):
+        abort(404)
+    try:
+        tree = tag_hierarchy.read_tree(calibre_db)
+    except (SQLAlchemyError, ValueError, TypeError):
+        abort(503, description=_("Tag hierarchy temporarily unavailable. Please try again."))
+    return jsonify({"hierarchical": tree.hierarchical, "items": tree.items})
 
 
 def _require_metadata_editor():
@@ -195,7 +209,7 @@ def list_publishers():
             .join(db.Books, db.books_publishers_link.c.book == db.Books.id)
             .filter(calibre_db.common_filters())
             .group_by(db.Publishers.id)
-            .order_by(func.ng_sort_key(db.Publishers.sort), db.Publishers.sort, db.Publishers.id)
+            .order_by(locale_sort_key(db.Publishers.name), db.Publishers.name, db.Publishers.id)
             .all())
     items = [{"id": p.id, "name": p.name, "count": cnt} for p, cnt in rows]
     return {"items": items}
@@ -224,6 +238,26 @@ def list_ratings():
             .all())
     items = [{"id": r.id, "name": "%g★" % (r.rating / 2), "count": cnt} for r, cnt in rows]
     return {"items": items}
+
+
+@api_v1.route('/personal-ratings')
+@login_required_if_no_ano
+def list_personal_ratings():
+    """Personal score buckets use scores, leaving legacy Calibre row IDs intact."""
+    from flask import jsonify
+    from ..personal_ratings import personal_score
+    from ..sort_orders import viewer_id
+    uid = viewer_id(current_user)
+    if uid is None:
+        return jsonify({'error': {'code': 'unauthorized', 'message': 'You must be signed in'}}), 401
+    score = personal_score(uid)
+    rows = (calibre_db.session.query(score.label('score'), func.count(db.Books.id))
+            .filter(calibre_db.common_filters()).group_by(score).order_by(score.desc()).all())
+    response = jsonify({'items': [{'id': value, 'name': '%g★' % (value / 2) if value else _('Unrated'),
+                                  'count': count} for value, count in rows]})
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Vary'] = 'Cookie, Authorization'
+    return response
 
 
 @api_v1.route("/formats")

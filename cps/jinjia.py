@@ -23,6 +23,14 @@ from .clean_html import clean_string
 jinjia = Blueprint('jinjia', __name__)
 log = logger.create()
 
+@jinjia.app_template_filter('catalog_initial')
+def catalog_initial(value):
+    """Use the same initial as SQLite's request-bound catalog grouping."""
+    from .unicode_collation import unicode_initial
+    from .cw_babel import get_collation_locale
+    return unicode_initial(value, get_collation_locale()) or ''
+
+
 
 # pagination links in jinja
 @jinjia.app_template_filter('url_for_other_page')
@@ -30,7 +38,8 @@ def url_for_other_page(page):
     args = request.view_args.copy()
     args['page'] = page
     for get, val in request.args.items():
-        args[get] = val
+        if get != 'page':
+            args[get] = val
     return url_for(request.endpoint, **args)
 
 
@@ -277,6 +286,24 @@ def contains_music(book_formats):
         if format.format.lower() in g.constants.EXTENSIONS_AUDIO:
             result = True
     return result
+
+
+@jinjia.app_template_filter('reader_formats')
+def reader_formats_filter(book):
+    """Comma-separated formats of *book* that read_book() opens, reading formats
+    in the order the detail page's "Read now" offers them, then audio formats for
+    its player; empty when the user may not read.
+
+    caliBlur's grid read action uses this instead of a list of its own, so the grid
+    and the detail page cannot disagree about which books are readable (#2249).
+    """
+    if not current_user.role_viewer():
+        return ''
+    from .helper import check_read_formats
+    formats = check_read_formats(book)
+    formats += [f for f in dict.fromkeys(d.format.lower() for d in book.data)
+                if f in constants.EXTENSIONS_AUDIO]
+    return ','.join(formats)
 
 
 @jinjia.app_template_filter('first_sentence')

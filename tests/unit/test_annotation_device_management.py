@@ -12,6 +12,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
+@pytest.fixture(autouse=True)
+def _share_place_switch_off(monkeypatch):
+    """These tests pin the shared (pre share-my-place) behaviour, which since
+    PR 5 needs the emergency off switch: unset now means gates on. The gated
+    behaviour is covered by tests/unit/test_share_place_*."""
+    monkeypatch.setenv("CWNG_SHARE_PLACE_GATES", "0")
+
+
 @pytest.fixture
 def session():
     from cps import ub
@@ -144,6 +152,38 @@ def test_device_list_exposes_webreader_kind_without_faking_legacy_rows(session):
     assert payload["kind"] == "webreader"
     assert payload["type"] == "webreader"
     assert payload["label"] == "Web reader"
+
+
+def test_source_cards_distinguish_origin_assignment_and_browser_identity(session):
+    """A source card counts historical untyped origins as well as typed ones,
+    keeps assignments separate, and classifies identity independently of names.
+    """
+    from cps import ub
+    from cps.annotations import list_annotation_devices
+    from cps.services.device_registry import WEBREADER_SCHEME
+
+    kobo = _device(session, label="Clara")
+    browser = _device(session, kind="webreader", label="Renamed browser")
+    fallback = _device(session, kind="webreader", label="Another custom name")
+    session.add(ub.DeviceIdentity(device_id=browser.id, key_version=1,
+                                 scheme=WEBREADER_SCHEME, fingerprint="browser-test-identity"))
+    _annotation(session, "origin-only", origin=kobo.id, annotation_type="highlight")
+    _annotation(session, "historical-untyped", origin=kobo.id)
+    _annotation(session, "both", origin=kobo.id, assigned=kobo.id, annotation_type="dogear")
+    _annotation(session, "assigned-only", origin=browser.id, assigned=kobo.id, annotation_type="note")
+    _annotation(session, "hidden", origin=kobo.id, assigned=kobo.id, hidden=True)
+    other = _device(session, user_id=8)
+    _annotation(session, "other-user", user_id=8, origin=other.id)
+    session.commit()
+    rows = {row["public_id"]: row for row in list_annotation_devices(user_id=7, session=session)}
+    assert other.public_id not in rows
+    assert rows[kobo.public_id]["origin_annotation_count"] == 3
+    assert rows[kobo.public_id]["annotation_count"] == 2, "Preserve legacy assignment-count contract"
+    assert rows[browser.public_id]["origin_annotation_count"] == 1
+    assert rows[browser.public_id]["browser_identity"] == "account"
+    assert rows[fallback.public_id]["browser_identity"] == "account"
+    assert rows[kobo.public_id]["browser_identity"] is None
+    assert rows[kobo.public_id]["inventory_observed"] is None
 
 
 @pytest.mark.unit
@@ -366,7 +406,7 @@ def test_soft_delete_preserves_origin_clears_assignment_and_restore_round_trips(
     from cps import ub
     from cps.annotations import (device_annotation_counts, restore_annotation_device,
                                  soft_delete_annotation_device)
-    device = _device(session, label="Maggie's Libra")
+    device = _device(session, label="the household reader's device")
     annotation = _annotation(session, "a-1", origin=device.id, assigned=device.id)
     session.add(ub.AnnotationDeviceState(annotation_id=annotation.id, device_id=device.id,
                                          desired=True, delivery_status="acknowledged"))
@@ -380,10 +420,10 @@ def test_soft_delete_preserves_origin_clears_assignment_and_restore_round_trips(
     session.refresh(annotation)
     assert counts == preflight
     assert deleted.active is False
-    assert deleted.display_name == "Maggie's Libra"
+    assert deleted.display_name == "the household reader's device"
     assert annotation.origin_device_id == device.id
     assert annotation.assigned_device_id is None
-    assert session.query(ub.Device).filter_by(id=annotation.origin_device_id).one().display_name == "Maggie's Libra"
+    assert session.query(ub.Device).filter_by(id=annotation.origin_device_id).one().display_name == "the household reader's device"
 
     restored, restored_count, conflicts = restore_annotation_device(
         device.public_id, user_id=7, session=session, commit=session.commit,
@@ -918,7 +958,7 @@ def test_admin_device_board_is_gated_filtered_and_never_invents_null_origin_devi
     board = {row["public_id"]: row for row in payload["devices"]}
     assert board[first.public_id]["highlights"] == 1
     assert board[first.public_id]["dogears"] == 0
-    assert board[first.public_id]["kind_label"] == "Web reader"
+    assert board[first.public_id]["kind_label"] == "Browser"
     assert board[second.public_id]["notes"] == 1
     serialized = str(payload).lower()
     assert "fingerprint" not in serialized

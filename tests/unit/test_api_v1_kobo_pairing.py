@@ -275,6 +275,7 @@ def test_device_json_serializes_naive_database_timestamps_as_utc():
         first_seen_at=observed,
         last_seen_at=observed,
         active=True,
+        share_place=False,
     )
     inventory = SimpleNamespace(item_count=2, observed_at=observed)
     storage = SimpleNamespace(free_bytes=1, total_bytes=2, observed_at=observed)
@@ -318,3 +319,34 @@ def test_shared_helper_preserves_classic_token_semantics():
     assert created.auth_token == "0f" * 16
     assert created.token_type == 1
     fake_ub.session.add.assert_called_once_with(created)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("user,path_user,status", [
+    (_user(authenticated=False, anonymous=True), None, 401),
+    (_user(user_id=1), 2, 403),
+])
+def test_full_sync_resets_nothing_for_a_caller_outside_the_owner_or_admin(user, path_user, status):
+    """#2334: forcing a full sync re-sends a whole library; only its owner or an admin may."""
+    from cps import admin
+    from cps.api import kobo_pairing as mod
+    with _ctx("/api/v1/admin/users/2/kobo-full-sync", method="POST"), \
+            patch.object(mod, "current_user", user), \
+            patch.object(mod, "ub", _ub()), \
+            patch.object(admin, "reset_kobo_sync_state") as reset:
+        response = inspect.unwrap(mod.force_kobo_full_sync)(path_user)
+    assert response[1] == status
+    reset.assert_not_called()
+
+
+@pytest.mark.unit
+def test_full_sync_reports_a_rolled_back_reset_as_failure():
+    from cps import admin
+    from cps.api import kobo_pairing as mod
+    with _ctx("/api/v1/account/kobo-full-sync", method="POST"), \
+            patch.object(mod, "current_user", _user()), \
+            patch.object(mod, "ub", _ub()), \
+            patch.object(admin, "reset_kobo_sync_state", return_value=(3, False)):
+        response = inspect.unwrap(mod.force_kobo_full_sync)()
+    assert response[1] == 500
+    assert _json(response)["error"]["code"] == "db_error"

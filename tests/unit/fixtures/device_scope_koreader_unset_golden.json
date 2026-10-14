@@ -1,0 +1,180 @@
+{
+ "shelf-only": {
+  "books": [
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 1,
+    "checksum": "<the file's checksum>",
+    "filename": "On To Read - Ann Author [1].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "8d8c5edb029ce196",
+    "series": null,
+    "series_index": null,
+    "shelves": [
+     "shelf-to-read"
+    ],
+    "size": 6007,
+    "title": "On To Read"
+   }
+  ],
+  "next_cursor": null,
+  "revision": "3955c876c31b52776a2fe438",
+  "scope": "shelves",
+  "scope_shelves": [
+   {
+    "id": "shelf-to-read",
+    "kind": "shelf",
+    "name": "To Read"
+   }
+  ],
+  "shelves": [
+   {
+    "id": "shelf-kindle",
+    "name": "Kindle"
+   },
+   {
+    "id": "shelf-kindle-copy",
+    "name": "Kindle copy"
+   },
+   {
+    "id": "shelf-to-read",
+    "name": "To Read"
+   }
+  ],
+  "total": 1,
+  "unsupported": 0
+ },
+ "whole-library": {
+  "books": [
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 1,
+    "checksum": "<the file's checksum>",
+    "filename": "On To Read - Ann Author [1].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "8d8c5edb029ce196",
+    "series": null,
+    "series_index": null,
+    "shelves": [
+     "shelf-to-read"
+    ],
+    "size": 6007,
+    "title": "On To Read"
+   },
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 2,
+    "checksum": "<the file's checksum>",
+    "filename": "Kindle One - Ann Author [2].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "037bfce9808aea22",
+    "series": null,
+    "series_index": null,
+    "shelves": [
+     "shelf-kindle",
+     "shelf-kindle-copy"
+    ],
+    "size": 6007,
+    "title": "Kindle One"
+   },
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 3,
+    "checksum": "<the file's checksum>",
+    "filename": "Kindle Two - Ann Author [3].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "8e9f92169e978de7",
+    "series": null,
+    "series_index": null,
+    "shelves": [
+     "shelf-kindle",
+     "shelf-kindle-copy"
+    ],
+    "size": 6007,
+    "title": "Kindle Two"
+   },
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 4,
+    "checksum": "<the file's checksum>",
+    "filename": "On No Shelf - Ann Author [4].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "f98f642a5dc72521",
+    "series": null,
+    "series_index": null,
+    "shelves": [],
+    "size": 6009,
+    "title": "On No Shelf"
+   },
+   {
+    "added": "2026-09-01T12:00:00Z",
+    "author_sort": "Ann Author",
+    "authors": [
+     "Ann Author"
+    ],
+    "book_id": 8,
+    "checksum": "<the file's checksum>",
+    "filename": "Only Theirs - Ann Author [8].epub",
+    "format": "EPUB",
+    "progress": null,
+    "read_status": "unread",
+    "rev": "78aecef7071b5ec3",
+    "series": null,
+    "series_index": null,
+    "shelves": [],
+    "size": 6009,
+    "title": "Only Theirs"
+   }
+  ],
+  "next_cursor": null,
+  "revision": "9bbf1b4780372d7dfd8b454c",
+  "scope": "library",
+  "scope_shelves": [],
+  "shelves": [
+   {
+    "id": "shelf-kindle",
+    "name": "Kindle"
+   },
+   {
+    "id": "shelf-kindle-copy",
+    "name": "Kindle copy"
+   },
+   {
+    "id": "shelf-to-read",
+    "name": "To Read"
+   }
+  ],
+  "total": 5,
+  "unsupported": 0
+ }
+}

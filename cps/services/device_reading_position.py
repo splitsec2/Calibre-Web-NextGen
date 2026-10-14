@@ -27,7 +27,7 @@ def _now():
 def rehydrate_request_cutoff():
     """Return the server clock fence for one sync request.
 
-    A latch whose ``server_modified_at`` is at or beyond this fence was armed
+    A latch whose ``rehydrate_armed_at`` is at or beyond this fence was armed
     during the current request.  It cannot be consumed until a later request,
     after the device has had a chance to apply the entitlement/download that
     may reset its local position.
@@ -205,6 +205,7 @@ def advance_kobo_bookmark(
     location_type=None,
     location_value=None,
     location_supplied=False,
+    clear_location_proof=False,
     incoming_clock=None,
     clock_accepts=False,
     equal_accepts=False,
@@ -235,6 +236,10 @@ def advance_kobo_bookmark(
             "location_type": location_type,
             "location_value": location_value,
         })
+        if clear_location_proof:
+            # A legacy native writer has no current-file sender proof. Drop
+            # the previous conversion's proof in the same accepted SQL write.
+            values.update(shared_from_koreader=False, span_kepub_identity=None)
     if incoming_percentage is not None and incoming_percentage > 0:
         values["created_at"] = case(
             (ub.KoboBookmark.created_at.is_(None), write_clock or now),
@@ -370,6 +375,7 @@ def mark_rehydrate_needed(device_id, book_ids, *, session=None):
             "device_id": int(device_id),
             "book_id": book_id,
             "server_modified_at": now,
+            "rehydrate_armed_at": now,
             "rehydrate_needed": True,
         }
         for book_id in normalized
@@ -378,7 +384,7 @@ def mark_rehydrate_needed(device_id, book_ids, *, session=None):
     s.execute(statement.on_conflict_do_update(
         index_elements=["device_id", "book_id"],
         set_={
-            "server_modified_at": statement.excluded.server_modified_at,
+            "rehydrate_armed_at": statement.excluded.rehydrate_armed_at,
             "rehydrate_needed": True,
         },
     ))
@@ -395,7 +401,7 @@ def mark_existing_positions_for_rehydrate(device_id, *, session=None):
     ).update(
         {
             ub.DeviceReadingPosition.rehydrate_needed: True,
-            ub.DeviceReadingPosition.server_modified_at: _now(),
+            ub.DeviceReadingPosition.rehydrate_armed_at: _now(),
         },
         synchronize_session=False,
     )

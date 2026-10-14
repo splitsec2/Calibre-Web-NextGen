@@ -42,7 +42,7 @@ where it is a real feature rather than an accident of design.
   gates this.
 - **The plugin is device-agnostic**, with providers for Kobo (`kobo_sqlite_provider.lua`)
   and KOReader (`koreader_annotations_provider.lua`). New capabilities must not assume
-  a Kindle, or they break Maggie's Libra.
+  a Kindle, or they break the household reader's device.
 - **Deletions are named, never inferred.** Established by #905/#906: a push declaring
   itself complete must not let the server reap rows it omitted. Inventory reporting
   must not become an implicit delete channel.
@@ -88,7 +88,7 @@ server to remove anything.
 
 **Test first:** inventory push with an unknown checksum; with a book that exists under
 a different format checksum (the #633 convergence case); with two devices owned by
-different users (must not cross-bind — `register_*_best_effort` already refuses this);
+different users (must not cross-bind — each account gets its own device row for the same hardware);
 and an inventory that omits a previously-reported book (must NOT delete server rows).
 
 ## Phase 2 — send-to-device (push without a socket)

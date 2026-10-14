@@ -101,10 +101,11 @@ class EmailSSL(EmailBase, smtplib.SMTP_SSL):
 
 class TaskEmail(CalibreTask):
     def __init__(self, subject, filepath, attachment, settings, recipient, task_message, text, id=0, internal=False,
-                 html=None, cover_user_id=None):
+                 html=None, cover_user_id=None, attachment_name=None):
         super(TaskEmail, self).__init__(task_message)
         self.subject = subject
         self.attachment = attachment
+        self.attachment_name = attachment_name or attachment
         self.settings = settings
         self.filepath = filepath
         self.recipient = recipient
@@ -155,7 +156,7 @@ class TaskEmail(CalibreTask):
                 if content_type is None or encoding is not None:
                     content_type = 'application/octet-stream'
                 main_type, sub_type = content_type.split('/', 1)
-                message.add_attachment(data, maintype=main_type, subtype=sub_type, filename=self.attachment)
+                message.add_attachment(data, maintype=main_type, subtype=sub_type, filename=self.attachment_name)
             else:
                 self._handleError("Attachment not found")
                 return
@@ -282,6 +283,22 @@ class TaskEmail(CalibreTask):
             log.error("Failed to register KOReader checksum for emailed book %s: %s",
                       self.book_id, ex)
 
+    def _personal_cover_copy(self, datafile, extension):
+        """Return the sender's personal-cover copy of ``datafile``, or None.
+
+        The cover choice is read through a session of this task's own: this
+        runs on WorkerThread, and a lookup through ``ub.session`` (which web
+        requests share) fails while a request is committing, silently
+        e-mailing the library cover instead.
+        """
+        if self.cover_user_id is None:
+            return None
+        from cps import ub
+        from cps.services import user_cover
+        with ub.owned_session() as app_session:
+            return user_cover.materialize_delivery_copy(
+                self.cover_user_id, self.book_id, datafile, extension, session=app_session)
+
     def _get_attachment(self, book_path, filename):
         """Get file as MIMEBase message"""
         calibre_path = config.get_book_path()
@@ -304,15 +321,13 @@ class TaskEmail(CalibreTask):
             source_datafile = datafile
             personal_copy = None
             try:
-                from cps.services import user_cover
-                personal_copy = user_cover.materialize_delivery_copy(
-                    self.cover_user_id, self.book_id, datafile, extension)
+                personal_copy = self._personal_cover_copy(datafile, extension)
                 if personal_copy is not None:
                     datafile = os.path.join(
                         personal_copy[0], personal_copy[1] + "." + extension)
             except Exception as ex:
                 log.warning("Could not prepare personal-cover email attachment: %s", ex)
-            self._register_kosync_checksum(datafile, extension, filename)
+            self._register_kosync_checksum(datafile, extension, self.attachment_name)
             with open(datafile, 'rb') as file_:
                 data = file_.read()
             if personal_copy is not None:
@@ -333,15 +348,13 @@ class TaskEmail(CalibreTask):
                 source_datafile = datafile
                 personal_copy = None
                 try:
-                    from cps.services import user_cover
-                    personal_copy = user_cover.materialize_delivery_copy(
-                        self.cover_user_id, self.book_id, datafile, extension)
+                    personal_copy = self._personal_cover_copy(datafile, extension)
                     if personal_copy is not None:
                         datafile = os.path.join(
                             personal_copy[0], personal_copy[1] + "." + extension)
                 except Exception as ex:
                     log.warning("Could not prepare personal-cover email attachment: %s", ex)
-                self._register_kosync_checksum(datafile, extension, filename)
+                self._register_kosync_checksum(datafile, extension, self.attachment_name)
                 with open(datafile, 'rb') as file_:
                     data = file_.read()
                 if personal_copy is not None:
