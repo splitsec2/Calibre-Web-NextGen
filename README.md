@@ -1,3 +1,93 @@
+> [!IMPORTANT]
+> **This is a fork of [new-usemame/Calibre-Web-NextGen](https://github.com/new-usemame/Calibre-Web-NextGen).**
+> Everything below the line after this block is upstream's own README, unchanged. If you are not me, you
+> almost certainly want [the upstream image](https://github.com/new-usemame/Calibre-Web-NextGen).
+> This fork exists so one household's book server can run a change that is not in a release yet.
+> Its images are amd64-only and built by hand.
+
+## What this fork adds
+
+The fork is deliberately thin. Upstream adopts most of what I send, so the fork carries one
+change in its image and keeps the rest as branches until upstream merges or declines them.
+
+### In the image
+
+| Change | Origin |
+|---|---|
+| Optional Cloudflare Access JWT check on reverse-proxy header login. With a team domain and an AUD set in Admin > Security, a request that only carries the email header is refused and the signed `Cf-Access-Jwt-Assertion` is verified instead. Off until both fields are set | This fork, open upstream as issue [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480). Branch `feat/verify-cloudflare-access-jwt`, waiting on the maintainer's decision about the PyJWT dependency |
+| A manual amd64 image build to GHCR (`fork-image.yml`) | This fork. Fork only |
+
+### On branches, not in the image
+
+| Change | Origin |
+|---|---|
+| Reverse proxy auth: an auto-created user gets a valid email, and a header email that another account already has logs into that account (branch `fix/reverse-proxy-email-when-username-is-email`) | This fork, open upstream as [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) |
+| Every per-request account lookup re-reads the row, so a password or role set by another process is seen at once and a disabled account cannot keep downloading over OPDS (branch `fix/reread-account-each-request`) | This fork, open upstream as [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568), from issue [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) |
+
+### Not sent yet
+
+| Change | Origin |
+|---|---|
+| The New UI's Change password refuses an account created by reverse proxy login, because it has no password to confirm. Reported as [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572), the fix is not written | This fork, upstream candidate |
+| Smart metadata mode only fills an empty title or description instead of letting a longer one win | This fork, upstream candidate. It was sent to Calibre-Web-Automated as [#1589](https://github.com/crocodilestick/calibre-web-automated/pull/1589), not to NextGen |
+| In-book validation during ingest (checks the file's own title against the match before applying it) | Sent to Calibre-Web-Automated as [#1592](https://github.com/crocodilestick/calibre-web-automated/pull/1592), not ported to NextGen |
+
+## Upstream first
+
+Anything that is not specific to this household goes upstream and does not live here. Six
+changes have merged so far. The maintainer adopts a PR onto the project's own branch with
+credit, so each one landed under a new PR number and my original PR was closed.
+
+Merged:
+
+- [#2265](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2265) the caliBlur grid read
+  icon only opens books the reader can show (adopts my #2250, issue #2249). In v4.1.44
+- [#2264](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2264) Convert Library stops
+  silently converting nothing (adopts my #2252, issue #2251). In v4.1.44
+- [#2493](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2493) Convert Library and the
+  EPUB Fixer recover from a killed run, and Cancel stops the running tool (adopts my #2424).
+  In v4.1.46
+- [#2494](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2494) Convert Library and
+  ingest stop deleting each other's files (adopts my #2425). In v4.1.46
+- [#2505](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2505) auto-metadata stays off
+  neighbouring numbered volumes, and Unknown-author books match again (issue #2479). In v4.1.46
+- [#2541](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2541) Convert Library sends an
+  epub straight to kepubify, and logs why an intermediate conversion failed (adopts my #2423).
+  Merged 2026-10-10, so it ships after v4.1.47
+
+Open:
+
+- [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) reverse proxy auth emails
+- [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568) re-read the account on each request
+- [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480) Cloudflare Access JWT check (issue)
+- [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
+- [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572) New UI password for proxy-created accounts (issue)
+
+The JWT check stays in the fork until upstream ships it or an equivalent. The two open PRs
+are mounted as patch files on my server instead of built in, so they leave when upstream
+merges them.
+
+## How it is maintained
+
+`main` is upstream's `main` plus the image workflow, merged forward from time to time. The
+image is built from a branch named for what it carries, `jwt-on-v4.1.47` being v4.1.47 with
+the JWT commit on top, by running the workflow by hand:
+
+```bash
+gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> -f tag=<tag>
+```
+
+Images are `ghcr.io/splitsec2/calibre-web-nextgen:<tag>`, and I pin them by tag and digest.
+To roll back, point the compose file at the upstream image of the same version
+(`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.47`). The library is untouched. The JWT check adds two settings columns to `app.db`
+(`config_reverse_proxy_access_team_domain` and `config_reverse_proxy_access_aud`), which
+upstream ignores.
+
+When one of the PRs above merges or is declined, this section and the tables are updated in
+the same change.
+
+---
+
 <p align="center">
   <img src="README_images/calibre-web-nextgen-banner.png" alt="Calibre-Web NextGen" width="520">
 </p>
