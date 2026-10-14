@@ -95,6 +95,9 @@ def _header_request(**headers):
 
 def _no_user_by_name(um):
     um.config.config_reverse_proxy_login_header_name = "Cf-Access-Authenticated-User-Email"
+    # The config is a MagicMock, so these would read as set and turn the Access token check on.
+    um.config.config_reverse_proxy_access_team_domain = ""
+    um.config.config_reverse_proxy_access_aud = ""
     um.ub.session.query.return_value.filter.return_value.first.return_value = None
 
 
