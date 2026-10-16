@@ -8,7 +8,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SpinnerCentered } from '../components/Spinner';
 import styles from './AdminValueMaps.module.css';
 
-type Field = 'tags';
+type Field = 'tags' | 'publishers';
 
 interface Rule { incoming: string; targets: string[] }
 interface LibraryValue { name: string; count: number; covered: boolean }
@@ -35,6 +35,7 @@ interface RunResponse {
 
 const FIELDS: { id: Field; label: string }[] = [
   { id: 'tags', label: 'Tags' },
+  { id: 'publishers', label: 'Publishers' },
 ];
 
 const endpoint = (field: Field) => `/api/v1/admin/value-maps/${field}`;
