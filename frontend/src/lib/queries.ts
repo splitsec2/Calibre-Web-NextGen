@@ -599,6 +599,8 @@ export interface TagWriteResult {
   deleted?: boolean;
   /** How many books moved (merge) or lost the tag (delete). */
   books?: number;
+  /** Set when the rename was recorded as a clean-up rule: future `from` maps to `to`. */
+  alias?: { from: string; to: string };
 }
 
 /** Read the conflicting tag off a failed rename, or null if this wasn't one. */
