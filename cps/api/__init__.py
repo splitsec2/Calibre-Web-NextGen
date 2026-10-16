@@ -234,3 +234,4 @@ from . import kobo_pairing  # noqa: E402,F401
 from . import koreader_devices  # noqa: E402,F401
 from . import acquisition  # noqa: E402,F401
 from . import discover_source  # noqa: E402,F401
+from . import value_maps  # noqa: E402,F401
