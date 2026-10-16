@@ -619,15 +619,20 @@ function invalidateTagViews(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['metadata'] });
 }
 
-export function useRenameTag(id: string | number) {
+/** Rename (or, on a collision, merge) one tag or publisher for every linked book. */
+export function useRenameValue(plural: 'tags' | 'publishers', id: string | number) {
   const qc = useQueryClient();
   return useMutation({
     // `merge` is only sent when explicitly true — the server refuses anything
     // else, and a merge cannot be undone.
     mutationFn: ({ name, merge }: { name: string; merge?: boolean }) =>
-      apiPost<TagWriteResult>(`/api/v1/tags/${id}`, merge === true ? { name, merge: true } : { name }),
+      apiPost<TagWriteResult>(`/api/v1/${plural}/${id}`, merge === true ? { name, merge: true } : { name }),
     onSuccess: () => invalidateTagViews(qc),
   });
+}
+
+export function useRenameTag(id: string | number) {
+  return useRenameValue('tags', id);
 }
 
 export function useDeleteTag(id: string | number) {
