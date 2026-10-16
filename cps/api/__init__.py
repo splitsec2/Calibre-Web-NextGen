@@ -315,6 +315,7 @@ from . import acquisition  # noqa: E402,F401
 from . import discover_source  # noqa: E402,F401
 
 from . import device_sleep_screen  # noqa: E402,F401
+from . import value_maps  # noqa: E402,F401
 
 _BASIC_AUTH_WRITE_VIEWS = (books.set_book_read_status, books.toggle_book_read,
                            actions.toggle_book_archived)
