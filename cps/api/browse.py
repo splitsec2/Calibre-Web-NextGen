@@ -66,7 +66,7 @@ def _require_metadata_editor():
 
 
 def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
-    """Rename one calibre list value (a tag) for every linked book.
+    """Rename one calibre list value (tag, publisher) for every linked book.
 
     ``model`` is the calibre table, ``link_attr`` the ``Books`` relationship
     that holds it, ``messages`` the translated texts for this kind of value
@@ -172,6 +172,24 @@ def rename_tag(tag_id):
     return _rename_or_merge(db.Tags, "tags", tag_id, name, merge, {
         "not_found": _("Tag not found"),
         "exists": _("A tag with that name already exists"),
+    })
+
+
+@api_v1.route("/publishers/<int:publisher_id>", methods=["POST"])
+@login_required_if_no_ano
+def rename_publisher(publisher_id):
+    """Rename one existing Calibre publisher for every linked book; same
+    semantics as tags, including the opt-in merge on a name collision."""
+    guard = _require_metadata_editor()
+    if guard is not None:
+        return guard
+    name, merge, error = _read_new_name(
+        _("Publisher name cannot be empty"), _("Publisher name must be text"))
+    if error is not None:
+        return error
+    return _rename_or_merge(db.Publishers, "publishers", publisher_id, name, merge, {
+        "not_found": _("Publisher not found"),
+        "exists": _("A publisher with that name already exists"),
     })
 
 
