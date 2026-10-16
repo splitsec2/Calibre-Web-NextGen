@@ -141,6 +141,16 @@ def test_undo_restores_and_skips_books_changed_since(library, app_db):
         cs.undo(app_db, library, change_set.id, **Hooks().kw())
 
 
+def test_publishers_use_the_same_path(library, app_db):
+    change_set = _propose(library, app_db, "publishers", {"Zebra Books": ["Zebra"]})
+
+    result = cs.apply(app_db, library, change_set.id, **Hooks().kw())
+
+    library.expire_all()
+    assert [p.name for p in library.get(db.Books, 1).publishers] == ["Zebra"]
+    assert result["removed_values"] == ["Zebra Books"]
+
+
 def test_only_a_proposed_set_applies(library, app_db):
     change_set = _propose(library, app_db, "tags", {"General": []})
     cs.apply(app_db, library, change_set.id, **Hooks().kw())
