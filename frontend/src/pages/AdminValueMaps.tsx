@@ -15,9 +15,11 @@ type ValueStatus = 'approved' | 'renamed' | 'dropped' | 'unapproved';
 interface LibraryValue { name: string; count: number; covered: boolean; status: ValueStatus }
 interface Change { book_id: number; title: string; authors: string[]; before: string[]; after: string[] }
 interface SetRow extends Change { id: number; status: string; error: string | null }
+interface RuleChange { field: string; incoming: string; before: string[] | null; after: string[] | null; status: string }
 interface SetSummary {
   id: number; source: string; status: 'proposed' | 'applied' | 'undone';
   created_at: string | null; applied_at: string | null; counts: Record<string, number>;
+  rule_changes?: RuleChange[]; books?: number;
 }
 interface SetDetail extends SetSummary { changes: SetRow[] }
 interface MapState {
@@ -213,6 +215,19 @@ function FieldPanel({ field }: { field: Field }) {
     () => t('Removed {n} values from the approved list.', { n: names.length }));
 
   const undecidedShown = values.filter((value) => value.status === 'unapproved');
+
+  // A Tags/Publishers page edit stores the rule for the value it renamed or
+  // deleted first; cascades into other rules come after it.
+  const describe = (item: SetSummary) => {
+    if (item.source === 'cleanup') return t('Clean-up run');
+    const own = (item.rule_changes ?? [])[0];
+    if (!own) return t('Page edit');
+    const extra = (item.rule_changes ?? []).length - 1;
+    const main = (own.after ?? []).length === 0
+      ? t('{name} deleted', { name: own.incoming })
+      : t('{from} → {to}', { from: own.incoming, to: (own.after ?? []).join(', ') });
+    return extra > 0 ? `${main} ${t('(and {n} rules that pointed at it)', { n: extra })}` : main;
+  };
 
   const exportFile = () => {
     // Approvals travel as X -> X rules, so an export restores the approved list too.
@@ -489,9 +504,14 @@ function FieldPanel({ field }: { field: Field }) {
             {data.history.map((item) => (
               <li key={item.id} className={styles.historyRow}>
                 <span>
-                  <span className={styles.incoming}>{item.applied_at ? new Date(item.applied_at).toLocaleString() : `#${item.id}`}</span>
+                  <span className={styles.incoming}>{describe(item)}</span>
                   <span className={styles.historyCounts}>
-                    {Object.entries(item.counts).map(([key, n]) => `${t(key)} ${n}`).join(' · ')}
+                    {[
+                      { cleanup: t('Clean-up'), tags_page: t('Tags page'), publishers_page: t('Publishers page') }[item.source] ?? item.source,
+                      item.applied_at ? new Date(item.applied_at).toLocaleString() : `#${item.id}`,
+                      t('{n} books', { n: item.books ?? 0 }),
+                      ...Object.entries(item.counts).filter(([key]) => key !== item.status).map(([key, n]) => `${t(key)} ${n}`),
+                    ].join(' · ')}
                   </span>
                 </span>
                 {item.status === 'applied' ? (

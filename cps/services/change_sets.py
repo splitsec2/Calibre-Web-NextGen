@@ -57,6 +57,44 @@ def create(app_session, source, user_id, changes):
     return change_set
 
 
+def record_applied(app_session, source, user_id, book_changes, rule_changes):
+    """Store an edit made elsewhere (the Tags or Publishers page) as an applied
+    set, so History lists it and Undo can reverse it. ``book_changes`` are
+    ``{book_id, field, old, new}``; ``rule_changes`` ``{field, incoming, before,
+    after}`` (``None`` = the rule did not exist)."""
+    now = datetime.now(timezone.utc)
+    change_set = ub.MetadataChangeSet(source=source, created_by=user_id, status="applied", applied_at=now)
+    app_session.add(change_set)
+    app_session.flush()
+    for change in book_changes:
+        app_session.add(ub.MetadataChange(
+            set_id=change_set.id, book_id=change["book_id"], field=change["field"],
+            old_value=change["old"], new_value=change["new"], status="applied"))
+    for change in rule_changes:
+        app_session.add(ub.MetadataRuleChange(
+            set_id=change_set.id, field=change["field"], incoming=change["incoming"],
+            before=change["before"], after=change["after"], status="applied"))
+    app_session.commit()
+    return change_set
+
+
+def rule_diff(field, before, after):
+    """Rule changes between two ``rules_snapshot`` results."""
+    out = []
+    for key in sorted(set(before) | set(after)):
+        b, a = before.get(key), after.get(key)
+        b_targets, a_targets = (b[1] if b else None), (a[1] if a else None)
+        if b_targets != a_targets:
+            out.append({"field": field, "incoming": (a or b)[0], "before": b_targets, "after": a_targets})
+    return out
+
+
+def rule_rows(app_session, set_id):
+    return (app_session.query(ub.MetadataRuleChange)
+            .filter(ub.MetadataRuleChange.set_id == set_id)
+            .order_by(ub.MetadataRuleChange.id).all())
+
+
 def rows(app_session, set_id):
     return (app_session.query(ub.MetadataChange)
             .filter(ub.MetadataChange.set_id == set_id)
@@ -143,6 +181,19 @@ def undo(app_session, calibre_session, set_id, *, mark_modified, queue_embed):
                    expect=lambda r: list(r.new_value or []), target=lambda r: list(r.old_value or []),
                    done_status="undone", exclude=set(),
                    mark_modified=mark_modified, queue_embed=queue_embed)
+    # Then the rules the edit recorded, each only if it still reads what the
+    # edit left behind; a rule changed since is reported, not overwritten.
+    from . import value_map as vm
+    for change in rule_rows(app_session, set_id):
+        if change.status != "applied":
+            continue
+        current = vm.rules_snapshot(app_session, change.field).get(vm.fold(change.incoming))
+        current_targets = current[1] if current else None
+        if current_targets != change.after:
+            change.status, change.error = "skipped", "rule changed since"
+            continue
+        vm.restore_rule(app_session, change.field, change.incoming, change.before, change_set.created_by)
+        change.status, change.error = "undone", None
     change_set.status = "undone"
     app_session.commit()
     return result
@@ -163,8 +214,11 @@ def summary(app_session, calibre_session, change_set):
     counts = {}
     for item in out:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
+    rules = [{"field": r.field, "incoming": r.incoming, "before": r.before, "after": r.after,
+              "status": r.status, "error": r.error} for r in rule_rows(app_session, change_set.id)]
     return {
         "id": change_set.id, "source": change_set.source, "status": change_set.status,
+        "rule_changes": rules,
         "created_at": change_set.created_at.isoformat() if change_set.created_at else None,
         "applied_at": change_set.applied_at.isoformat() if change_set.applied_at else None,
         "counts": counts, "changes": out,
