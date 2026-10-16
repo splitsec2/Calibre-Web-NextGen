@@ -55,6 +55,21 @@ def test_clean_rules_rejects_bad_input():
     assert len(errors) == 3
 
 
+@pytest.mark.parametrize("raw", [
+    [{"incoming": "Penguin", "targets": ["Penguin Books", "Viking"]}],  # what Save sends
+    {"Penguin": ["Penguin Books", "Viking"]},                          # an export or tag_map.json import
+])
+def test_single_valued_field_refuses_split_at_save_and_import(raw):
+    rules, errors = vm.clean_rules("publishers", raw)
+    assert rules == [] and errors == ["rule 1: a single-valued field maps to one value or none"]
+    # The same rule is a split for a multi-valued field.
+    rules, errors = vm.clean_rules("tags", raw)
+    assert errors == [] and rules[0]["targets"] == ["Penguin Books", "Viking"]
+    # Spellings of one value are one target, not a split.
+    rules, errors = vm.clean_rules("publishers", {"Zebra Books": ["Zebra", "zebra"]})
+    assert errors == [] and rules[0]["targets"] == ["Zebra"]
+
+
 def test_clean_rules_accepts_the_export_and_legacy_map_shapes():
     rules, errors = vm.clean_rules("tags", {"Suspense": "Thriller"})
     assert errors == [] and rules[0]["targets"] == ["Thriller"]

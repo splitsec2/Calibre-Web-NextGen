@@ -5,7 +5,8 @@
 The value map, the change sets and the clean-up API read a field's model,
 its link to books and its cardinality from here rather than each keeping
 their own copy. A single-valued field (``multi=False``) takes one-to-one or
-drop rules only.
+drop rules only: auto fetch assigns it as a one-element list
+(``book.publishers = [publisher]``).
 """
 from dataclasses import dataclass
 
@@ -32,4 +33,6 @@ class FieldSpec:
 FIELD_SPECS = {
     "tags": FieldSpec("tags", db.Tags, "tags", db.books_tags_link, "tag",
                       multi=True, forbid_comma=True, has_sort=False),
+    "publishers": FieldSpec("publishers", db.Publishers, "publishers", db.books_publishers_link, "publisher",
+                            multi=False, forbid_comma=False, has_sort=True),
 }
