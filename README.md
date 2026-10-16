@@ -64,6 +64,7 @@ Open:
 
 - [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) reverse proxy auth emails
 - [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568) re-read the account on each request
+- [#2612](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2612) auto metadata fetch records a text-only change, so it reaches the book file
 - [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480) Cloudflare Access JWT check (issue)
 - [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
 - [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572) New UI password for proxy-created accounts (issue)
