@@ -78,7 +78,7 @@ def _require_metadata_editor():
     return None
 
 
-def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
+def _rename_or_merge(model, link_attr, obj_id, name, merge, messages, journal=None):
     """Rename one calibre list value (tag, publisher) for every linked book.
 
     ``model`` is the calibre table, ``link_attr`` the ``Books`` relationship
@@ -90,7 +90,8 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
     ``merge: true`` to fold this value into it. The merge stays opt-in and must
     be boolean ``true``: folding two values together destroys the distinction
     between them and there is no undo, so a typo that happens to match an
-    existing value must not silently consume it.
+    existing value must not silently consume it. ``journal``, when given, is
+    filled with each affected book's values before and after.
     """
     with metadata_db_write_lock():
         obj = calibre_db.session.get(model, obj_id)
@@ -117,6 +118,7 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
         # Materialize the exact linked-book set while association writers are
         # excluded, then mutate and dirty that same set in one transaction.
         affected_books = list(obj.books)
+        before = {b.id: [v.name for v in getattr(b, link_attr)] for b in affected_books}
         try:
             if duplicate is not None:
                 # Merge: move every book off this value onto the survivor, whose
@@ -152,29 +154,42 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
     for book in affected_books:
         helper.log_metadata_change(
             book, {link_attr: ", ".join(item.name for item in getattr(book, link_attr))})
+        if journal is not None:
+            journal.append({"book_id": book.id, "field": link_attr, "old": before[book.id],
+                            "new": [v.name for v in getattr(book, link_attr)]})
     return jsonify(result)
 
 
 log = logger.create()
 
 
-def _record_in_value_map(field, record):
+def _record_in_value_map(field, record, journal=(), subject=None):
     """A rename, merge or delete here is also recorded in the value map, so it
-    can hold for books that arrive later. Recording is unconditional; whether a
-    rule is used (the clean-up page, and later ingest and fetch) is gated where
-    it is read, so a stored rule changes nothing by itself. Best-effort: never
-    fails the edit. Returns whether the rule was recorded."""
+    can hold for books that arrive later, and stored as an applied change set
+    (the books before and after, and the rules it changed) so the clean-up
+    page's History can undo it. Recording is unconditional; whether a rule is
+    used (the clean-up page, and later ingest and fetch) is gated where it is
+    read, so a stored rule changes nothing by itself. Best-effort: never fails
+    the edit. Returns whether the rule was recorded."""
     try:
         from .. import ub
+        from ..services import change_sets as cs
         from ..services import value_map as vm
-        record(vm, ub.session, getattr(current_user, "id", None))
+        user_id = getattr(current_user, "id", None)
+        rules_before = vm.rules_snapshot(ub.session, field)
+        record(vm, ub.session, user_id)
+        rule_changes = cs.rule_diff(field, rules_before, vm.rules_snapshot(ub.session, field))
+        # The edited value's own rule first; cascades into other rules after it.
+        rule_changes.sort(key=lambda rc: vm.fold(rc["incoming"]) != vm.fold(subject or ""))
+        if journal or rule_changes:
+            cs.record_applied(ub.session, f"{field}_page", user_id, list(journal), rule_changes)
         return True
     except Exception as error:
         log.warning("Value map not updated after a %s edit: %s", field, error)
         return False
 
 
-def _renamed(response, field, old_name):
+def _renamed(response, field, old_name, journal):
     """Record ``old -> new`` once a rename or merge has succeeded, and say so
     in the response (``alias``) so the page can tell the user."""
     if old_name is None or isinstance(response, tuple):
@@ -182,7 +197,7 @@ def _renamed(response, field, old_name):
     data = response.get_json() or {}
     new_name = data.get("name")
     if new_name and new_name != old_name and _record_in_value_map(
-            field, lambda vm, s, uid: vm.record_rename(s, field, old_name, new_name, uid)):
+            field, lambda vm, s, uid: vm.record_rename(s, field, old_name, new_name, uid), journal, old_name):
         data["alias"] = {"from": old_name, "to": new_name}
         return jsonify(data)
     return response
@@ -217,10 +232,11 @@ def rename_tag(tag_id):
         return error
     tag = calibre_db.session.get(db.Tags, tag_id)
     old_name = tag.name if tag is not None else None
+    journal = []
     return _renamed(_rename_or_merge(db.Tags, "tags", tag_id, name, merge, {
         "not_found": _("Tag not found"),
         "exists": _("A tag with that name already exists"),
-    }), "tags", old_name)
+    }, journal=journal), "tags", old_name, journal)
 
 
 @api_v1.route("/publishers/<int:publisher_id>", methods=["POST"])
@@ -237,10 +253,11 @@ def rename_publisher(publisher_id):
         return error
     publisher = calibre_db.session.get(db.Publishers, publisher_id)
     old_name = publisher.name if publisher is not None else None
+    journal = []
     return _renamed(_rename_or_merge(db.Publishers, "publishers", publisher_id, name, merge, {
         "not_found": _("Publisher not found"),
         "exists": _("A publisher with that name already exists"),
-    }), "publishers", old_name)
+    }, journal=journal), "publishers", old_name, journal)
 
 
 @api_v1.route("/tags/<int:tag_id>", methods=["DELETE"])
@@ -264,6 +281,7 @@ def delete_tag(tag_id):
 
         name = tag.name
         affected_books = list(tag.books)
+        before = {b.id: [t.name for t in b.tags] for b in affected_books}
         try:
             for book in affected_books:
                 book.tags.remove(tag)
@@ -277,7 +295,9 @@ def delete_tag(tag_id):
 
     for book in affected_books:
         helper.log_metadata_change(book, {"tags": ", ".join(item.name for item in book.tags)})
-    _record_in_value_map("tags", lambda vm, s, uid: vm.record_delete(s, "tags", name, uid))
+    journal = [{"book_id": b.id, "field": "tags", "old": before[b.id], "new": [t.name for t in b.tags]}
+               for b in affected_books]
+    _record_in_value_map("tags", lambda vm, s, uid: vm.record_delete(s, "tags", name, uid), journal, name)
     return jsonify({"id": tag_id, "name": name, "deleted": True, "books": len(affected_books)})
 
 

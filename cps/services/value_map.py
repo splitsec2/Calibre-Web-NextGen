@@ -292,6 +292,24 @@ def record_delete(app_session, field, name, user_id):
     app_session.commit()
 
 
+def rules_snapshot(app_session, field):
+    """``{incoming_key: (incoming, targets)}`` for one field, to diff around an edit."""
+    return {r.incoming_key: (r.incoming, list(r.targets or [])) for r in _rules_of(app_session, field)}
+
+
+def restore_rule(app_session, field, incoming, targets, user_id):
+    """Put one rule back as it was: ``targets`` None means it did not exist."""
+    from .. import ub
+    key = fold(incoming)
+    row = (app_session.query(ub.MetadataValueRule)
+           .filter(ub.MetadataValueRule.field == field, ub.MetadataValueRule.incoming_key == key).first())
+    if targets is None:
+        if row is not None:
+            app_session.delete(row)
+    else:
+        _put(app_session, field, incoming, targets, user_id)
+
+
 def set_approved_only(app_session, field, on, user_id):
     from .. import ub
     row = app_session.get(ub.MetadataValueField, field)

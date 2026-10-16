@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from cps import db, ub
 import cps.api.browse as browse
+from cps.services import change_sets as cs
 from cps.services import value_map as vm
 
 pytestmark = pytest.mark.unit
@@ -22,7 +23,8 @@ pytestmark = pytest.mark.unit
 def app_db():
     engine = create_engine("sqlite://")
     ub.Base.metadata.create_all(engine, tables=[
-        ub.MetadataValueRule.__table__, ub.MetadataValueField.__table__])
+        ub.MetadataValueRule.__table__, ub.MetadataValueField.__table__, ub.MetadataChangeSet.__table__,
+        ub.MetadataChange.__table__, ub.MetadataRuleChange.__table__])
     return sessionmaker(bind=engine)()
 
 
@@ -88,7 +90,13 @@ def tag_session():
                  lambda connection, _record: connection.execute("ATTACH DATABASE ':memory:' AS calibre"))
     db.Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    session.add_all([db.Tags("Thrillers"), db.Tags("General"), db.Publishers("Zebra Books", "Zebra Books")])
+    thrillers, general = db.Tags("Thrillers"), db.Tags("General")
+    session.add_all([thrillers, general, db.Publishers("Zebra Books", "Zebra Books")])
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    book = db.Books("Book 1", "Book 1", "Author", now, now, "1.0", now, "b1", 1, [], [])
+    book.tags.extend([thrillers, general])
+    session.add(book)
     session.commit()
     yield session
     session.close()
@@ -134,3 +142,42 @@ def test_publishers_page_rename_records_a_rule(tag_session, app_db):
     response = _call(browse.rename_publisher, tag_session, app_db, publisher_id, payload={"name": "Zebra"})
     assert response.get_json()["alias"] == {"from": "Zebra Books", "to": "Zebra"}
     assert _rules(app_db, "publishers") == {"Zebra Books": ["Zebra"]}
+
+
+def _book_tags(session):
+    session.expire_all()
+    return sorted(t.name for t in session.query(db.Books).one().tags)
+
+
+def _undo(tag_session, app_db, set_id):
+    return cs.undo(app_db, tag_session, set_id, mark_modified=lambda b: None, queue_embed=lambda b, c: None)
+
+
+def test_a_tags_page_rename_is_in_history_and_undo_puts_books_and_rules_back(tag_session, app_db):
+    _call(browse.rename_tag, tag_session, app_db, _tag_id(tag_session, "Thrillers"), payload={"name": "Thriller"})
+    assert _book_tags(tag_session) == ["General", "Thriller"]
+    change_set = app_db.query(ub.MetadataChangeSet).one()
+    summary = cs.summary(app_db, tag_session, change_set)
+    assert (summary["source"], summary["status"]) == ("tags_page", "applied")
+    assert [(c["before"], c["after"]) for c in summary["changes"]] == [(["General", "Thrillers"], ["General", "Thriller"])]
+    assert summary["rule_changes"][0]["incoming"] == "Thrillers"
+
+    _undo(tag_session, app_db, change_set.id)
+    assert _book_tags(tag_session) == ["General", "Thrillers"]
+    assert _rules(app_db) == {}
+
+
+def test_a_tags_page_delete_undoes_too(tag_session, app_db):
+    _call(browse.delete_tag, tag_session, app_db, _tag_id(tag_session, "General"), method="DELETE")
+    assert _book_tags(tag_session) == ["Thrillers"] and _rules(app_db) == {"General": []}
+    _undo(tag_session, app_db, app_db.query(ub.MetadataChangeSet).one().id)
+    assert _book_tags(tag_session) == ["General", "Thrillers"] and _rules(app_db) == {}
+
+
+def test_undo_leaves_a_rule_changed_since_and_says_so(tag_session, app_db):
+    _call(browse.rename_tag, tag_session, app_db, _tag_id(tag_session, "Thrillers"), payload={"name": "Thriller"})
+    vm.replace_rules(app_db, "tags", vm.clean_rules("tags", {"Thrillers": ["Suspense"]})[0], 1)
+    set_id = app_db.query(ub.MetadataChangeSet).one().id
+    _undo(tag_session, app_db, set_id)
+    assert _rules(app_db) == {"Thrillers": ["Suspense"]}
+    assert [(r.status, r.error) for r in cs.rule_rows(app_db, set_id)] == [("skipped", "rule changed since")]
