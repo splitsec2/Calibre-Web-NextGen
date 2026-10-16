@@ -29,8 +29,9 @@ interface BrowseListProps {
  *  problem. Each row owns its own mutations, which is why this is a component
  *  rather than inline JSX in the map.
  */
-function TagRow({ id, name, count, href, kind = 'tag' }: {
+function TagRow({ id, name, count, href, kind = 'tag', onAlias }: {
   id: number | string; name: string; count: number; href: string; kind?: 'tag' | 'publisher';
+  onAlias?: (alias: { from: string; to: string }) => void;
 }) {
   const { t } = useI18n();
   const announce = useAnnouncer();
@@ -62,6 +63,7 @@ function TagRow({ id, name, count, href, kind = 'tag' }: {
         announce(result.merged
           ? t('Merged into {name}', { name: result.name })
           : isTag ? t('Tag renamed to {name}', { name: result.name }) : t('Publisher renamed to {name}', { name: result.name }));
+        if (result.alias) onAlias?.(result.alias);
         close();
       },
       onError: (error) => {
@@ -175,6 +177,7 @@ export function BrowseList(props: BrowseListProps) {
 }
 
 function BrowseListContent({ plural, title }: BrowseListProps) {
+  const [alias, setAlias] = useState<{ from: string; to: string } | null>(null);
   const { t, locale } = useI18n();
   const { data, isLoading, error } = useEntityList(plural);
   // Tag maintenance is an editor action; everyone else sees the plain list.
@@ -270,6 +273,12 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
         </div>
       )}
 
+      {alias && <p className={styles.resultStatus} role="status" aria-live="polite">
+        {plural === 'publishers'
+          ? t('From now on, “{from}” becomes “{to}” when publisher aliases are on.', alias)
+          : t('From now on, “{from}” becomes “{to}” when tag aliases are on.', alias)}
+      </p>}
+
       {hasBookCountFilter && data && <p className={styles.resultStatus} role="status" aria-live="polite">
         {t('Showing {shown} of {total} {items}.', { shown: minimumInvalid ? 0 : items.length, total: totalItems, items: translatedItems })}
       </p>}
@@ -288,7 +297,7 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
             const href = `/${plural}/${encodeURIComponent(String(e.id))}`;
             return canEditTags ? (
               <TagRow key={String(e.id)} id={e.id} name={e.name} count={e.count} href={href}
-                kind={plural === 'publishers' ? 'publisher' : 'tag'} />
+                kind={plural === 'publishers' ? 'publisher' : 'tag'} onAlias={setAlias} />
             ) : (
               <li key={String(e.id)}>
                 <Link href={href} className={styles.item}>

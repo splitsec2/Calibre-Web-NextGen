@@ -3,14 +3,15 @@
 """Admin API for the value map and its library clean-up (#2438, Discussion #2481).
 
 GET    /api/v1/admin/value-maps/<field>          rules, library values, live preview, history
-PUT    /api/v1/admin/value-maps/<field>          replace the rules (also the import)
+PUT    /api/v1/admin/value-maps/<field>          replace the rules (also the import); approvals kept
+PUT    /api/v1/admin/value-maps/<field>/settings  {"approved_only": bool}
+POST   /api/v1/admin/value-maps/<field>/approve   {"names": [...]}: approve values (X -> X)
+POST   /api/v1/admin/value-maps/<field>/unapprove {"names": [...]}
 POST   /api/v1/admin/value-maps/<field>/preview  store the live preview as a change set
 GET    /api/v1/admin/change-sets/<id>            one change set with its rows
 POST   /api/v1/admin/change-sets/<id>/apply      apply it, per-book results
 POST   /api/v1/admin/change-sets/<id>/undo       reverse an applied set
 """
-from datetime import datetime, timezone
-
 from flask import jsonify, request
 
 from . import api_v1
@@ -49,10 +50,32 @@ def _files_rewritten():
 
 
 def _rules(field):
+    """``(rules, approved)``: rename/split/drop rules, and approved values (X -> X)."""
     rows = (ub.session.query(ub.MetadataValueRule)
             .filter(ub.MetadataValueRule.field == field)
             .order_by(ub.MetadataValueRule.incoming_key).all())
-    return [{"incoming": r.incoming, "targets": list(r.targets or [])} for r in rows]
+    rules, approved = [], []
+    for r in rows:
+        targets = list(r.targets or [])
+        if vm.is_approval(r.incoming, targets):
+            approved.append(targets[0])
+        else:
+            rules.append({"incoming": r.incoming, "targets": targets})
+    return rules, approved
+
+
+def _status(value_map, name):
+    key = vm.fold(name)
+    if key in value_map.rules:
+        targets = value_map.rules[key]
+        if not targets:
+            return "dropped"
+        if vm.is_approval(name, targets):
+            return "approved"
+        return "renamed"
+    if key in value_map.canonical:
+        return "approved"
+    return "unapproved"
 
 
 def _live_preview(field, value_map):
@@ -86,10 +109,14 @@ def _state(field):
     values = vm.library_values(calibre_db.session, field)
     for item in values:
         item["covered"] = value_map.covers(item["name"])
+        item["status"] = _status(value_map, item["name"])
+    rules, approved = _rules(field)
     return {
         "field": field,
         "multi": FIELD_SPECS[field].multi,
-        "rules": _rules(field),
+        "approved_only": value_map.approved_only,
+        "approved": sorted(approved, key=vm.fold),
+        "rules": rules,
         "values": values,
         "changes": _live_preview(field, value_map),
         "history": _history(field),
@@ -123,18 +150,58 @@ def value_map_replace(field):
     if errors:
         return jsonify({"error": {"code": "invalid_rules", "message": "Some rules are not valid",
                                   "details": errors}}), 400
-    now = datetime.now(timezone.utc)
     try:
-        (ub.session.query(ub.MetadataValueRule)
-         .filter(ub.MetadataValueRule.field == field).delete())
-        for rule in rules:
-            ub.session.add(ub.MetadataValueRule(
-                field=field, incoming=rule["incoming"], incoming_key=rule["incoming_key"],
-                targets=rule["targets"], updated_by=current_user.id, updated_at=now))
-        ub.session.commit()
+        vm.replace_rules(ub.session, field, rules, current_user.id)
     except Exception:
         ub.session.rollback()
         raise
+    return jsonify(_state(field))
+
+
+@api_v1.route("/admin/value-maps/<field>/settings", methods=["PUT"])
+@login_required_if_no_ano
+def value_map_settings(field):
+    guard = _guard(field)
+    if guard is not None:
+        return guard
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("approved_only"), bool):
+        return _err("invalid_request", "approved_only must be true or false", 400)
+    vm.set_approved_only(ub.session, field, payload["approved_only"], current_user.id)
+    return jsonify(_state(field))
+
+
+def _names():
+    payload = request.get_json(silent=True)
+    names = payload.get("names") if isinstance(payload, dict) else None
+    if not isinstance(names, list) or not all(isinstance(n, str) and n.strip() for n in names):
+        return None
+    return [" ".join(n.split()) for n in names]
+
+
+@api_v1.route("/admin/value-maps/<field>/approve", methods=["POST"])
+@login_required_if_no_ano
+def value_map_approve(field):
+    guard = _guard(field)
+    if guard is not None:
+        return guard
+    names = _names()
+    if names is None:
+        return _err("invalid_request", "names must be a list of values", 400)
+    skipped = vm.approve(ub.session, field, names, current_user.id)
+    return jsonify({**_state(field), "skipped": skipped})
+
+
+@api_v1.route("/admin/value-maps/<field>/unapprove", methods=["POST"])
+@login_required_if_no_ano
+def value_map_unapprove(field):
+    guard = _guard(field)
+    if guard is not None:
+        return guard
+    names = _names()
+    if names is None:
+        return _err("invalid_request", "names must be a list of values", 400)
+    vm.unapprove(ub.session, field, names)
     return jsonify(_state(field))
 
 
