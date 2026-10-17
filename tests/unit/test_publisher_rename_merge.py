@@ -19,6 +19,14 @@ import cps.api.browse as browse
 
 pytestmark = pytest.mark.unit
 
+@pytest.fixture(autouse=True)
+def _no_value_map_recording(monkeypatch):
+    # The rename and delete routes also record into the clean-up value map and then
+    # answer with an "alias"; that has its own tests (test_value_map_approved.py).
+    # These cover the rename itself, whatever state an earlier test left app.db in.
+    monkeypatch.setattr(browse, "_record_in_value_map", lambda *args, **kwargs: False)
+
+
 
 def _book(index, publishers):
     now = datetime.now(timezone.utc)
