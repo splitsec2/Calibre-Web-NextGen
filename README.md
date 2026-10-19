@@ -12,7 +12,7 @@ until upstream merges or declines it.
 
 ### In the image
 
-My server runs `cleanup-v4.1.47-1`, built from branch `preview/value-map`: v4.1.47 with every
+My server runs `cleanup-v4.1.47-3`, built from branch `preview/value-map-next`: v4.1.47 with every
 change in this table. #2426 and #2568 touch the same function, so they are merged by hand there.
 
 | Change | Origin |
@@ -21,7 +21,9 @@ change in this table. #2426 and #2568 touch the same function, so they are merge
 | Reverse proxy auth: an auto-created user gets a valid email, and a header email that another account already has logs into that account (branch `fix/reverse-proxy-email-when-username-is-email`) | This fork, open upstream as [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) |
 | Every per-request account lookup re-reads the row, so a password or role set by another process is seen at once and a disabled account cannot keep downloading over OPDS (branch `fix/reread-account-each-request`) | This fork, open upstream as [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568), from issue [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) |
 | Smart metadata mode only fills a missing title or description instead of letting a longer one win, because a summary or study guide's title is nearly always longer than the book's (branch `fix/smart-mode-fill-only`, with tests that fail on v4.1.47) | This fork, not sent upstream yet. It went to Calibre-Web-Automated as [#1589](https://github.com/crocodilestick/calibre-web-automated/pull/1589) first |
-| A metadata clean-up page (Admin > Configuration > Metadata clean-up). A stored map for tags and publishers renames, splits or drops a value, matched regardless of case and accents. The page previews every book that would change and applies it with per-book results and Undo. Values can be approved, with an "Only approved values" switch, and a rename or delete on the Tags page is recorded as a rule. I am running it before sending it, because it is a large change | This fork, not sent yet. The map, preview and apply part was invited upstream in [Discussion #2481](https://github.com/new-usemame/Calibre-Web-NextGen/discussions/2481), for [#2438](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2438). Branches `cleanup/pr1-tag-map`, `cleanup/pr2-publishers` and `cleanup/pr3-approved-values` are the upstream PRs to be, one after another |
+| A metadata clean-up page (Admin > Configuration > Metadata clean-up). A stored map for tags and publishers renames, splits or drops a value, matched regardless of case and accents. The page previews every book that would change and applies it with per-book results and Undo. Values can be approved, with an "Only approved values" switch, and a rename or delete on the Tags page is recorded as a rule. I ran it here before sending it, because it is a large change | This fork. The map, preview and apply part for tags is open upstream as [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668), as invited in [Discussion #2481](https://github.com/new-usemame/Calibre-Web-NextGen/discussions/2481) for [#2438](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2438). Publishers and the approved values, with the Tags page recording, are not sent yet: they follow one at a time from branches `cleanup/pr2-publishers` and `cleanup/pr3-approved-values` |
+| Auto metadata fetch records a text-only change (description, publisher, published date, rating) like a cover change, so it reaches the book file | This fork, merged upstream as [#2664](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2664) (adopts my #2612). Ships after v4.1.49 |
+| Four upstream fixes picked ahead of a release: an import that reports no book id fails instead of acting on the newest book ([#2624](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2624)), Kobo sync finishes its response when app.db refuses the final write ([#2627](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2627)), startup removes data left by deleted users ([#2574](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2574)), and a case-only title change no longer deletes the book file ([#2560](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2560)) | Upstream, all in v4.1.48 |
 | A manual amd64 image build to GHCR (`fork-image.yml`) | This fork. Fork only |
 
 ### Not sent yet
@@ -33,7 +35,7 @@ change in this table. #2426 and #2568 touch the same function, so they are merge
 
 ## Upstream first
 
-Anything that is not specific to this household goes upstream and does not live here. Six
+Anything that is not specific to this household goes upstream and does not live here. Seven
 changes have merged so far. The maintainer adopts a PR onto the project's own branch with
 credit, so each one landed under a new PR number and my original PR was closed.
 
@@ -52,27 +54,29 @@ Merged:
   neighbouring numbered volumes, and Unknown-author books match again (issue #2479). In v4.1.46
 - [#2541](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2541) Convert Library sends an
   epub straight to kepubify, and logs why an intermediate conversion failed (adopts my #2423).
-  Merged 2026-10-10, so it ships after v4.1.47
+  In v4.1.48
+- [#2664](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2664) auto metadata fetch records a text-only change, so it reaches
+  the book file (adopts my #2612). Merged 2026-10-19, so it ships after v4.1.49
 
 Open:
 
 - [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) reverse proxy auth emails
 - [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568) re-read the account on each request
-- [#2612](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2612) auto metadata fetch records a text-only change, so it reaches the book file
+- [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668) metadata clean-up: a tag map with preview, apply and undo
 - [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480) Cloudflare Access JWT check (issue)
 - [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
 - [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572) New UI password for proxy-created accounts (issue)
 
 The JWT check stays in the fork until upstream ships it or an equivalent. Each change leaves
-the image when a release I run carries it. Fill-only smart mode and the clean-up page have no
-upstream PR yet.
+the image when a release I run carries it. Fill-only smart mode has no upstream PR yet, and
+the rest of the clean-up page follows #2668 one PR at a time.
 
 ## How it is maintained
 
 `main` is upstream's `main` plus the image workflow and this README, merged forward from
 time to time. The image is built from a branch named for what it carries by running the workflow
-by hand. `fork/live-v4.1.47` is v4.1.47 with the changes above except the clean-up page, and
-`preview/value-map` adds the clean-up page on top of it:
+by hand. `fork/live-v4.1.47` is v4.1.47 with the fork's own changes except the clean-up page, and
+`preview/value-map-next` adds the clean-up page, the fetch fix and the four upstream fixes on top of it:
 
 ```bash
 gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> -f tag=<tag>
@@ -82,8 +86,8 @@ Images are `ghcr.io/splitsec2/calibre-web-nextgen:<tag>`, and I pin them by tag 
 To roll back, point the compose file at the upstream image of the same version
 (`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.47`). The library is untouched. The JWT check adds two settings columns to `app.db`
 (`config_reverse_proxy_access_team_domain` and `config_reverse_proxy_access_aud`), and the
-clean-up page adds four tables (`metadata_value_rule`, `metadata_value_field`,
-`metadata_change_set`, `metadata_change`), which upstream ignores.
+clean-up page adds five tables (`metadata_value_rule`, `metadata_value_field`,
+`metadata_change_set`, `metadata_change`, `metadata_rule_change`), which upstream ignores.
 
 When one of the PRs above merges or is declined, this section and the tables are updated in
 the same change.
