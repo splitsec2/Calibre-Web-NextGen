@@ -8,7 +8,7 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from . import api_v1
-from .. import calibre_db, constants, db, helper, tag_hierarchy
+from .. import calibre_db, constants, db, helper, logger, tag_hierarchy
 from ..cw_login import current_user
 from ..services.calibre_db_lock import metadata_db_write_lock
 from ..usermanagement import login_required_if_no_ano
@@ -78,7 +78,7 @@ def _require_metadata_editor():
     return None
 
 
-def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
+def _rename_or_merge(model, link_attr, obj_id, name, merge, messages, journal=None):
     """Rename one calibre list value (a tag) for every linked book.
 
     ``model`` is the calibre table, ``link_attr`` the ``Books`` relationship
@@ -90,7 +90,8 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
     ``merge: true`` to fold this value into it. The merge stays opt-in and must
     be boolean ``true``: folding two values together destroys the distinction
     between them and there is no undo, so a typo that happens to match an
-    existing value must not silently consume it.
+    existing value must not silently consume it. ``journal``, when given, is
+    filled with each affected book's values before and after.
     """
     with metadata_db_write_lock():
         obj = calibre_db.session.get(model, obj_id)
@@ -117,6 +118,7 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
         # Materialize the exact linked-book set while association writers are
         # excluded, then mutate and dirty that same set in one transaction.
         affected_books = list(obj.books)
+        before = {b.id: [v.name for v in getattr(b, link_attr)] for b in affected_books}
         try:
             if duplicate is not None:
                 # Merge: move every book off this value onto the survivor, whose
@@ -152,7 +154,53 @@ def _rename_or_merge(model, link_attr, obj_id, name, merge, messages):
     for book in affected_books:
         helper.log_metadata_change(
             book, {link_attr: ", ".join(item.name for item in getattr(book, link_attr))})
+        if journal is not None:
+            journal.append({"book_id": book.id, "field": link_attr, "old": before[book.id],
+                            "new": [v.name for v in getattr(book, link_attr)]})
     return jsonify(result)
+
+
+log = logger.create()
+
+
+def _wants_rule():
+    """The Tags page's "Also add a rule" box. Honoured for admins only: the
+    value map is admin-managed, so an editor's rename stays a one-off edit."""
+    payload = request.get_json(silent=True)
+    asked = (isinstance(payload, dict) and payload.get("add_rule") is True) or request.args.get("add_rule") == "1"
+    return asked and bool(getattr(current_user, "role_admin", lambda: False)())
+
+
+def _record_page_edit(field, journal, rule=None, subject=None):
+    """Store a Tags page edit as an applied change set, so the clean-up page's
+    History lists it and Undo can reverse it. When ``rule`` is given (an admin
+    ticked "Also add a rule"), the rule goes into the value map in the same
+    commit. Best-effort: the edit itself has already succeeded and is never
+    failed here. Returns the edited value's rule as stored, or None."""
+    from .. import ub
+    try:
+        from ..services import change_sets as cs
+        from ..services import value_map as vm
+        user_id = getattr(current_user, "id", None)
+        rule_changes, recorded = [], None
+        if rule is not None:
+            before = vm.rules_snapshot(ub.session, field)
+            rule(vm, ub.session, user_id)
+            rule_changes = cs.rule_diff(field, before, vm.rules_snapshot(ub.session, field))
+            # The edited value's own rule first; rules that pointed at it after.
+            rule_changes.sort(key=lambda rc: vm.fold(rc["incoming"]) != vm.fold(subject or ""))
+            recorded = next(({"incoming": rc["incoming"], "targets": rc["after"] or []}
+                             for rc in rule_changes if vm.fold(rc["incoming"]) == vm.fold(subject or "")), None)
+        if journal or rule_changes:
+            cs.record_applied(ub.session, f"{field}_page", user_id, list(journal), rule_changes)
+        return recorded
+    except Exception as error:
+        log.warning("Clean-up history not updated after a %s page edit: %s", field, error)
+        try:
+            ub.session.rollback()
+        except Exception:
+            pass
+        return None
 
 
 def _read_new_name(empty_message, type_message, comma_message=None):
@@ -182,10 +230,26 @@ def rename_tag(tag_id):
         _("Tag name cannot be empty"), _("Tag name must be text"), _("Tag name cannot contain commas"))
     if error is not None:
         return error
-    return _rename_or_merge(db.Tags, "tags", tag_id, name, merge, {
+    tag = calibre_db.session.get(db.Tags, tag_id)
+    old_name = tag.name if tag is not None else None
+    add_rule = _wants_rule()
+    journal = []
+    response = _rename_or_merge(db.Tags, "tags", tag_id, name, merge, {
         "not_found": _("Tag not found"),
         "exists": _("A tag with that name already exists"),
-    })
+    }, journal=journal)
+    if isinstance(response, tuple) or old_name is None:
+        return response
+    data = response.get_json() or {}
+    new_name = data.get("name")
+    if not new_name or new_name == old_name:
+        return response
+    rule = (lambda vm, s, uid: vm.record_rename(s, "tags", old_name, new_name, uid)) if add_rule else None
+    recorded = _record_page_edit("tags", journal, rule, old_name)
+    if recorded is None:
+        return response
+    data["rule"] = recorded
+    return jsonify(data)
 
 
 @api_v1.route("/tags/<int:tag_id>", methods=["DELETE"])
@@ -209,6 +273,7 @@ def delete_tag(tag_id):
 
         name = tag.name
         affected_books = list(tag.books)
+        before = {b.id: [t.name for t in b.tags] for b in affected_books}
         try:
             for book in affected_books:
                 book.tags.remove(tag)
@@ -222,7 +287,14 @@ def delete_tag(tag_id):
 
     for book in affected_books:
         helper.log_metadata_change(book, {"tags": ", ".join(item.name for item in book.tags)})
-    return jsonify({"id": tag_id, "name": name, "deleted": True, "books": len(affected_books)})
+    journal = [{"book_id": b.id, "field": "tags", "old": before[b.id], "new": [t.name for t in b.tags]}
+               for b in affected_books]
+    rule = (lambda vm, s, uid: vm.record_delete(s, "tags", name, uid)) if _wants_rule() else None
+    result = {"id": tag_id, "name": name, "deleted": True, "books": len(affected_books)}
+    recorded = _record_page_edit("tags", journal, rule, name)
+    if recorded is not None:
+        result["rule"] = recorded
+    return jsonify(result)
 
 
 @api_v1.route("/publishers")
