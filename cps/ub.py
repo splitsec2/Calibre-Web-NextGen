@@ -884,7 +884,8 @@ class MetadataChangeSet(Base):
 
     ``source`` is what proposed it: ``cleanup``, ``tags_page`` or
     ``publishers_page`` (an edit on that page, stored already applied so it
-    can be undone), ``ingest``,
+    can be undone), ``ingest`` (the map applied to a new book at import,
+    stored the same way),
     ``auto_fetch``, ``manual_fetch`` or ``batch``. ``status`` is ``proposed``, ``applied`` or
     ``undone``. Rows live in ``metadata_change``.
     """
@@ -922,12 +923,15 @@ class MetadataChange(Base):
 
 
 class MetadataValueField(Base):
-    """Per-field setting of the value map: ``approved_only`` drops any value
-    no rule covers (approved values are the map's targets)."""
+    """Per-field settings of the value map: ``approved_only`` drops any value
+    no rule covers (approved values are the map's targets); ``apply_incoming``
+    applies the map to new books' values at import and to fetched metadata
+    (#2438). Both default off."""
     __tablename__ = 'metadata_value_field'
 
     field = Column(String(32), primary_key=True)
     approved_only = Column(Boolean, nullable=False, default=False)
+    apply_incoming = Column(Boolean, nullable=False, default=False)
     updated_by = Column(Integer)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -4177,6 +4181,16 @@ def migrate_metadata_value_rule_table(engine, _session):
                 MetadataChange.__table__, MetadataRuleChange.__table__],
         checkfirst=True,
     )
+    # metadata_value_field predates apply_incoming on some app.db files.
+    with engine.connect() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(metadata_value_field)"))}
+    if columns and "apply_incoming" not in columns:
+        try:
+            _run_ddl_with_retry(
+                engine, "ALTER TABLE metadata_value_field ADD COLUMN apply_incoming BOOLEAN NOT NULL DEFAULT 0")
+        except exc.OperationalError as error:
+            if "duplicate column" not in str(error).lower():
+                raise
 
 
 def migrate_user_book_cover_table(engine, _session):
