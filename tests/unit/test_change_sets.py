@@ -47,7 +47,8 @@ def library():
 def app_db():
     engine = create_engine("sqlite://")
     ub.Base.metadata.create_all(engine, tables=[
-        ub.MetadataValueRule.__table__, ub.MetadataChangeSet.__table__, ub.MetadataChange.__table__])
+        ub.MetadataValueRule.__table__, ub.MetadataChangeSet.__table__, ub.MetadataChange.__table__,
+        ub.MetadataRuleChange.__table__])
     return sessionmaker(bind=engine)()
 
 
