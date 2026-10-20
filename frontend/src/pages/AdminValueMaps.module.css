@@ -105,12 +105,22 @@
 
 .values { max-height: 420px; overflow-y: auto; }
 .value {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--sp-3);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(130px, auto); align-items: center; gap: var(--sp-3);
   padding: var(--sp-1) var(--sp-3); border-bottom: 1px solid var(--border); font-size: var(--fs-sm);
 }
 .value:last-child { border-bottom: 0; }
 .valueName { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; overflow-wrap: anywhere; }
 .covered { color: var(--success); flex: none; }
+.valueActions { display: inline-flex; gap: var(--sp-3); justify-content: flex-end; }
+/* Value status: the Account-page state-pill idiom, tint carries the tone. */
+.status_approved, .status_renamed, .status_dropped, .status_unapproved {
+  flex: none; padding: 1px var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-full);
+  font-size: var(--fs-xs); white-space: nowrap;
+}
+.status_approved { background: var(--success-soft); border-color: var(--success-border); color: var(--text); }
+.status_renamed { background: var(--accent-soft); color: var(--text); }
+.status_dropped { background: var(--danger-soft); border-color: var(--danger-border); color: var(--text-muted); }
+.status_unapproved { background: var(--surface-3); color: var(--text-muted); }
 .valueCount { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
 
 .confirmText { font-size: var(--fs-sm); font-weight: var(--fw-medium); }
