@@ -5,14 +5,15 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 // The admin API is stubbed; the page under test is the real SPA route.
 
 const values = [
-  { name: 'Fiction / Thrillers', count: 3, covered: false },
-  { name: 'thriller', count: 2, covered: false },
-  { name: 'General', count: 2, covered: false },
-  { name: 'Dragons', count: 1, covered: false },
+  { name: 'Fiction / Thrillers', count: 3, covered: false, status: 'unapproved' },
+  { name: 'thriller', count: 2, covered: false, status: 'unapproved' },
+  { name: 'General', count: 2, covered: false, status: 'unapproved' },
+  { name: 'Dragons', count: 1, covered: false, status: 'unapproved' },
 ];
 
 const emptyState = {
-  field: 'tags', multi: true, rules: [], values, changes: [], history: [], files_rewritten: true,
+  field: 'tags', multi: true, approved_only: false, approved: [], rules: [], values, changes: [], history: [],
+  files_rewritten: true,
 };
 
 const change = {
@@ -33,7 +34,7 @@ async function stubCleanup(page: Page) {
       state = {
         ...state,
         rules: [{ incoming: 'Fiction / Thrillers', targets: ['Thriller'] }],
-        values: values.map((v) => ({ ...v, covered: v.name === 'Fiction / Thrillers' })),
+        values: values.map((v) => (v.name === 'Fiction / Thrillers' ? { ...v, covered: true, status: 'renamed' } : v)),
         changes: [change],
       };
     }
@@ -110,4 +111,30 @@ test('a rule is added, saved, previewed and applied, with undo offered after', a
     await page.evaluate((value) => document.documentElement.setAttribute('data-theme', value), theme);
     await assertNoSeriousAxeViolations(page);
   }
+});
+
+test('values can be approved, and the only-approved switch is sent as set', async ({ page }) => {
+  const sent: { approve?: unknown; settings?: unknown } = {};
+  let state: Record<string, unknown> = { ...emptyState };
+  await page.route(/\/api\/v1\/admin\/value-maps\/tags$/, (route) => route.fulfill({ json: state }));
+  await page.route(/\/api\/v1\/admin\/value-maps\/tags\/approve$/, async (route) => {
+    sent.approve = route.request().postDataJSON();
+    state = { ...state, approved: ['Dragons'],
+      values: values.map((v) => (v.name === 'Dragons' ? { ...v, covered: true, status: 'approved' } : v)) };
+    await route.fulfill({ json: { ...state, skipped: [] } });
+  });
+  await page.route(/\/api\/v1\/admin\/value-maps\/tags\/settings$/, async (route) => {
+    sent.settings = route.request().postDataJSON();
+    state = { ...state, approved_only: true };
+    await route.fulfill({ json: state });
+  });
+  await page.goto('/app/admin/metadata-cleanup');
+  await page.locator('[class*="value"]').filter({ hasText: 'Dragons' }).getByRole('button', { name: 'Approve' }).click();
+  expect(sent.approve).toEqual({ names: ['Dragons'] });
+  await expect(page.getByText('Approved 1 values.')).toBeVisible();
+  // Dragons is decided now, so the default "not decided yet" list no longer shows it.
+  await expect(page.locator('[class*="valueName"]').filter({ hasText: 'Dragons' })).toHaveCount(0);
+  await page.getByLabel('Only approved values').check();
+  expect(sent.settings).toEqual({ approved_only: true });
+  await expect(page.getByText(/^On: a value that is not approved/)).toBeVisible();
 });
