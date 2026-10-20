@@ -2,7 +2,8 @@ import { useMemo, useState, useDeferredValue } from 'react';
 import { Link } from 'wouter';
 import { LayoutGrid, List, Search, Pencil, Trash2, Check, X, Merge } from 'lucide-react';
 import { useEntityList, useMe, useRenameTag, useDeleteTag, tagConflictOf } from '../lib/queries';
-import type { TagConflict } from '../lib/queries';
+import type { TagConflict, TagWriteResult } from '../lib/queries';
+import { SPA_ROUTES } from '../lib/routes';
 import { ApiError } from '../lib/api';
 import { SpinnerCentered } from '../components/Spinner';
 import { EmptyState } from '../components/EmptyState';
@@ -26,7 +27,25 @@ interface BrowseListProps {
  *  problem. Each row owns its own mutations, which is why this is a component
  *  rather than inline JSX in the map.
  */
-function TagRow({ id, name, count, href }: { id: number | string; name: string; count: number; href: string }) {
+type AddedRule = NonNullable<TagWriteResult['rule']>;
+
+/** "Also add a rule": a Tags page edit is a one-off unless an admin asks for it
+ *  to become a clean-up rule too (Discussion #2481). Unticked by default, and
+ *  only offered to admins, since the clean-up map is admin-managed. */
+function AddRuleBox({ id, checked, onChange }: { id: string; checked: boolean; onChange: (next: boolean) => void }) {
+  const { t } = useI18n();
+  return (
+    <label className={styles.rowRule} htmlFor={id}>
+      <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {t('Also add a rule in Metadata clean-up')}
+    </label>
+  );
+}
+
+function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
+  id: number | string; name: string; count: number; href: string;
+  canAddRule?: boolean; onRule?: (rule: AddedRule) => void;
+}) {
   const { t } = useI18n();
   const announce = useAnnouncer();
   const rename = useRenameTag(id);
@@ -35,8 +54,9 @@ function TagRow({ id, name, count, href }: { id: number | string; name: string; 
   const [draft, setDraft] = useState(name);
   const [err, setErr] = useState('');
   const [conflict, setConflict] = useState<TagConflict | null>(null);
+  const [addRule, setAddRule] = useState(false);
 
-  const close = () => { setMode('idle'); setErr(''); setConflict(null); };
+  const close = () => { setMode('idle'); setErr(''); setConflict(null); setAddRule(false); };
   const failure = (error: unknown, fallback: string) => {
     if (error instanceof ApiError) {
       const messages: Record<number, string> = {
@@ -51,11 +71,12 @@ function TagRow({ id, name, count, href }: { id: number | string; name: string; 
   };
 
   const submit = (next: string, merge?: boolean) => {
-    rename.mutate({ name: next, merge }, {
+    rename.mutate({ name: next, merge, addRule: canAddRule && addRule }, {
       onSuccess: (result) => {
         announce(result.merged
           ? t('Merged into {name}', { name: result.name })
           : t('Tag renamed to {name}', { name: result.name }));
+        if (result.rule) onRule?.(result.rule);
         close();
       },
       onError: (error) => {
@@ -87,6 +108,7 @@ function TagRow({ id, name, count, href }: { id: number | string; name: string; 
             aria-label={t('Save tag name')}><Check size={17} aria-hidden="true" focusable={false} /></button>
           <button type="button" className={styles.rowAction} onClick={close}
             aria-label={t('Cancel')}><X size={17} aria-hidden="true" focusable={false} /></button>
+          {canAddRule && <AddRuleBox id={`tag-rename-rule-${id}`} checked={addRule} onChange={setAddRule} />}
           {err && <span id={`tag-rename-err-${id}`} className={styles.rowError} role="alert">{err}</span>}
           {conflict && (
             <div className={styles.rowConfirm} role="alert">
@@ -117,8 +139,12 @@ function TagRow({ id, name, count, href }: { id: number | string; name: string; 
             : t('Delete “{name}”? It is removed from {count} books, which are kept.', { name, count })}</span>
           <button type="button" className={styles.rowDanger} disabled={remove.isPending}
             aria-label={t('Confirm delete tag {name}', { name })}
-            onClick={() => remove.mutate(undefined, {
-              onSuccess: (result) => { announce(t('Deleted tag {name}', { name: result.name })); close(); },
+            onClick={() => remove.mutate(canAddRule && addRule, {
+              onSuccess: (result) => {
+                announce(t('Deleted tag {name}', { name: result.name }));
+                if (result.rule) onRule?.(result.rule);
+                close();
+              },
               onError: (error) => setErr(failure(error, t('Could not delete tag'))),
             })}>
             <Trash2 size={16} aria-hidden="true" focusable={false} />
@@ -126,6 +152,7 @@ function TagRow({ id, name, count, href }: { id: number | string; name: string; 
           </button>
           <button type="button" className={styles.rowAction} onClick={close}
             aria-label={t('Cancel')}><X size={16} aria-hidden="true" focusable={false} /></button>
+          {canAddRule && <AddRuleBox id={`tag-delete-rule-${id}`} checked={addRule} onChange={setAddRule} />}
           {err && <span className={styles.rowError} role="alert">{err}</span>}
         </div>
       </li>
@@ -166,7 +193,10 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
   const { t, locale } = useI18n();
   const { data, isLoading, error } = useEntityList(plural);
   // Tag maintenance is an editor action; everyone else sees the plain list.
-  const canEditTags = plural === 'tags' && !!useMe().data?.role?.edit;
+  const me = useMe().data;
+  const canEditTags = plural === 'tags' && !!me?.role?.edit;
+  const canAddRule = canEditTags && !!me?.role?.admin;
+  const [addedRule, setAddedRule] = useState<AddedRule | null>(null);
   const [q, setQ] = useState('');
   const minimumScope: 'authors' | 'series' | null = plural === 'authors' || plural === 'series' ? plural : null;
   const hasBookCountFilter = minimumScope !== null;
@@ -258,6 +288,14 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
         </div>
       )}
 
+      {addedRule && <p className={styles.resultStatus} role="status" aria-live="polite">
+        {addedRule.targets.length === 0
+          ? t('Rule added: “{from}” is dropped when the clean-up rules are applied.', { from: addedRule.incoming })
+          : t('Rule added: “{from}” becomes “{to}” when the clean-up rules are applied.',
+            { from: addedRule.incoming, to: addedRule.targets.join(', ') })}{' '}
+        <Link href={SPA_ROUTES.adminValueMaps}>{t('Open Metadata clean-up')}</Link>
+      </p>}
+
       {hasBookCountFilter && data && <p className={styles.resultStatus} role="status" aria-live="polite">
         {t('Showing {shown} of {total} {items}.', { shown: minimumInvalid ? 0 : items.length, total: totalItems, items: translatedItems })}
       </p>}
@@ -275,7 +313,8 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
           {items.map((e) => {
             const href = `/${plural}/${encodeURIComponent(String(e.id))}`;
             return canEditTags ? (
-              <TagRow key={String(e.id)} id={e.id} name={e.name} count={e.count} href={href} />
+              <TagRow key={String(e.id)} id={e.id} name={e.name} count={e.count} href={href}
+                canAddRule={canAddRule} onRule={setAddedRule} />
             ) : (
               <li key={String(e.id)}>
                 <Link href={href} className={styles.item}>

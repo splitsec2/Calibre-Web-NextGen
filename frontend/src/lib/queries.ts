@@ -599,6 +599,8 @@ export interface TagWriteResult {
   deleted?: boolean;
   /** How many books moved (merge) or lost the tag (delete). */
   books?: number;
+  /** The clean-up rule this edit added, when an admin ticked "Also add a rule". */
+  rule?: { incoming: string; targets: string[] };
 }
 
 /** Read the conflicting tag off a failed rename, or null if this wasn't one. */
@@ -622,9 +624,13 @@ export function useRenameTag(id: string | number) {
   const qc = useQueryClient();
   return useMutation({
     // `merge` is only sent when explicitly true — the server refuses anything
-    // else, and a merge cannot be undone.
-    mutationFn: ({ name, merge }: { name: string; merge?: boolean }) =>
-      apiPost<TagWriteResult>(`/api/v1/tags/${id}`, merge === true ? { name, merge: true } : { name }),
+    // else. `add_rule` likewise: the rule only exists when the box was ticked.
+    mutationFn: ({ name, merge, addRule }: { name: string; merge?: boolean; addRule?: boolean }) =>
+      apiPost<TagWriteResult>(`/api/v1/tags/${id}`, {
+        name,
+        ...(merge === true ? { merge: true } : {}),
+        ...(addRule === true ? { add_rule: true } : {}),
+      }),
     onSuccess: () => invalidateTagViews(qc),
   });
 }
@@ -632,7 +638,8 @@ export function useRenameTag(id: string | number) {
 export function useDeleteTag(id: string | number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiDelete<TagWriteResult>(`/api/v1/tags/${id}`),
+    mutationFn: (addRule?: boolean) =>
+      apiDelete<TagWriteResult>(`/api/v1/tags/${id}${addRule === true ? '?add_rule=1' : ''}`),
     onSuccess: () => invalidateTagViews(qc),
   });
 }
