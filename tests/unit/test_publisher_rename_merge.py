@@ -8,14 +8,13 @@ row (and its sort) in step.
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-import flask
 import pytest
-from flask_babel import Babel
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from cps import db
 import cps.api.browse as browse
+from tests.unit.value_map_world import app  # noqa: F401  (the shared Flask app, #2546)
 
 pytestmark = pytest.mark.unit
 
@@ -44,13 +43,6 @@ def session():
     session.commit()
     yield session
     session.close()
-
-
-@pytest.fixture()
-def app():
-    app = flask.Flask(__name__)
-    Babel(app)
-    return app
 
 
 def _editor():

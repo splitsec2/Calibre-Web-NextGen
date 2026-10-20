@@ -65,3 +65,23 @@ test('a delete with the box left unticked sends no rule', async ({ page }) => {
   await expect.poll(() => sent.deleteUrl).toMatch(/\/api\/v1\/tags\/102$/);
   await expect(page.getByText(/Rule added/)).toHaveCount(0);
 });
+
+test('the Publishers page renames with the same box and offers no delete', async ({ page }) => {
+  let sent: unknown;
+  await page.route(/\/api\/v1\/publishers$/, (route) => route.fulfill({ json: { items: [
+    { id: 201, name: 'Penguin Books Ltd', count: 4 },
+  ] } }));
+  await page.route(/\/api\/v1\/publishers\/201$/, async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: { id: 201, name: 'Penguin', rule: { incoming: 'Penguin Books Ltd', targets: ['Penguin'] } } });
+  });
+  await page.goto('/app/publishers');
+  await expect(page.getByRole('button', { name: /Delete publisher/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Rename publisher Penguin Books Ltd' }).click();
+  await page.getByLabel('Also add a rule in Metadata clean-up').check();
+  await page.getByLabel('Publisher name').fill('Penguin');
+  await page.getByRole('button', { name: 'Save publisher name' }).click();
+  expect(sent).toEqual({ name: 'Penguin', add_rule: true });
+  await expect(page.getByText('Rule added: “Penguin Books Ltd” becomes “Penguin” when the clean-up rules are applied.'))
+    .toBeVisible();
+});
