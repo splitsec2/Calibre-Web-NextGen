@@ -1,7 +1,7 @@
 import { Link } from 'wouter';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronLeft, Download, Plus, RotateCcw, Trash2, Upload, Wand2 } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, Download, Plus, RotateCcw, ShieldCheck, Trash2, Upload, Wand2 } from 'lucide-react';
 import { ApiError, apiGet, apiPost, apiPut } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { EmptyState } from '../components/EmptyState';
@@ -11,7 +11,8 @@ import styles from './AdminValueMaps.module.css';
 type Field = 'tags' | 'publishers';
 
 interface Rule { incoming: string; targets: string[] }
-interface LibraryValue { name: string; count: number; covered: boolean }
+type ValueStatus = 'approved' | 'renamed' | 'dropped' | 'unapproved';
+interface LibraryValue { name: string; count: number; covered: boolean; status: ValueStatus }
 interface Change { book_id: number; title: string; authors: string[]; before: string[]; after: string[] }
 interface SetRow extends Change { id: number; status: string; error: string | null }
 interface RuleChange { field: string; incoming: string; before: string[] | null; after: string[] | null; status: string }
@@ -22,7 +23,8 @@ interface SetSummary {
 }
 interface SetDetail extends SetSummary { changes: SetRow[] }
 interface MapState {
-  field: Field; multi: boolean; rules: Rule[]; values: LibraryValue[]; changes: Change[];
+  field: Field; multi: boolean; approved_only: boolean; approved: string[];
+  rules: Rule[]; values: LibraryValue[]; changes: Change[];
   history: SetSummary[]; files_rewritten: boolean;
 }
 interface RunResponse {
@@ -114,7 +116,7 @@ function FieldPanel({ field }: { field: Field }) {
   const [draft, setDraft] = useState<Rule[] | null>(null);
   const [prefill, setPrefill] = useState('');
   const [filter, setFilter] = useState('');
-  const [uncoveredOnly, setUncoveredOnly] = useState(true);
+  const [undecidedOnly, setUndecidedOnly] = useState(true);
   const [sortBy, setSortBy] = useState<'books' | 'name'>('books');
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -131,13 +133,13 @@ function FieldPanel({ field }: { field: Field }) {
   const values = useMemo(() => {
     const needle = fold(filter);
     const shown = (data?.values ?? []).filter((value) =>
-      (!uncoveredOnly || !value.covered) && (!needle || fold(value.name).includes(needle)));
+      (!undecidedOnly || value.status === 'unapproved') && (!needle || fold(value.name).includes(needle)));
     // By name, folded the way rules match, so near duplicates ("Montreal" and
     // "Montréal", "Zebra" and "Zebra Books") sit next to each other.
     return sortBy === 'name'
       ? [...shown].sort((a, b) => fold(a.name).localeCompare(fold(b.name)) || a.name.localeCompare(b.name))
       : shown;
-  }, [data, filter, uncoveredOnly, sortBy]);
+  }, [data, filter, undecidedOnly, sortBy]);
 
   if (isLoading) return <SpinnerCentered size={36} />;
   if (error || !data) return <EmptyState message={t('Could not load the map.')} />;
@@ -185,8 +187,39 @@ function FieldPanel({ field }: { field: Field }) {
     }
   };
 
+  const send = async (work: () => Promise<MapState & { skipped?: string[] }>, done: (s: MapState & { skipped?: string[] }) => string) => {
+    setBusy(true); setFailure(null); setStatus(null);
+    try {
+      const next = await work();
+      update(next);
+      setStatus(done(next));
+    } catch (e) {
+      setFailure(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setApprovedOnly = (on: boolean) => send(
+    () => apiPut(`${endpoint(field)}/settings`, { approved_only: on }),
+    () => on
+      ? t('Only approved values: on. Values that are not approved and have no rule are dropped in the preview below.')
+      : t('Only approved values: off. Values with no rule are kept.'));
+
+  const approve = (names: string[]) => send(
+    () => apiPost(`${endpoint(field)}/approve`, { names }),
+    (next) => t('Approved {n} values.', { n: names.length - (next.skipped?.length ?? 0) }));
+
+  const unapprove = (names: string[]) => send(
+    () => apiPost(`${endpoint(field)}/unapprove`, { names }),
+    () => t('Removed {n} values from the approved list.', { n: names.length }));
+
+  const undecidedShown = values.filter((value) => value.status === 'unapproved');
+
   const exportFile = () => {
-    const body = JSON.stringify({ field, rules: data.rules }, null, 2);
+    // Approvals travel as X -> X rules, so an export restores the approved list too.
+    const approvals = data.approved.map((name) => ({ incoming: name, targets: [name] }));
+    const body = JSON.stringify({ field, rules: [...data.rules, ...approvals] }, null, 2);
     const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url; a.download = `${field}-map.json`; a.click();
@@ -256,6 +289,25 @@ function FieldPanel({ field }: { field: Field }) {
 
   return (
     <>
+      <section className={styles.card} aria-labelledby={`${field}-approved`}>
+        <header className={styles.cardHeader}>
+          <h2 id={`${field}-approved`}>
+            <ShieldCheck size={18} aria-hidden="true" focusable={false} className={styles.covered} />
+            {t('Approved values')} <span className={styles.count}>{data.approved.length}</span>
+          </h2>
+          <label className={styles.inlineSwitch}>
+            <input type="checkbox" checked={data.approved_only} disabled={busy}
+              onChange={(e) => void setApprovedOnly(e.target.checked)} />
+            <span>{t('Only approved values')}</span>
+          </label>
+        </header>
+        <p className={styles.muted}>
+          {data.approved_only
+            ? t('On: a value that is not approved and has no rule is dropped. A value is approved when you approve it below or a rule maps to it.')
+            : t('Off: values with no rule are kept as they are.')}
+        </p>
+      </section>
+
       <section className={styles.card} aria-labelledby={`${field}-rules`}>
         <header className={styles.cardHeader}>
           <h2 id={`${field}-rules`}>{t('Rules')} <span className={styles.count}>{rules.length}</span></h2>
@@ -320,27 +372,44 @@ function FieldPanel({ field }: { field: Field }) {
             <input className={styles.search} type="search" value={filter} placeholder={t('Filter')}
               aria-label={t('Filter values')} onChange={(e) => setFilter(e.target.value)} />
             <label className={styles.inlineSwitch}>
-              <input type="checkbox" checked={uncoveredOnly} onChange={(e) => setUncoveredOnly(e.target.checked)} />
-              <span>{t('Only values without a rule')}</span>
+              <input type="checkbox" checked={undecidedOnly} onChange={(e) => setUndecidedOnly(e.target.checked)} />
+              <span>{t('Only values not decided yet')}</span>
             </label>
+            <button type="button" className={styles.secondary} disabled={busy || undecidedShown.length === 0}
+              onClick={() => void approve(undecidedShown.map((value) => value.name))}>
+              <Check size={16} aria-hidden="true" focusable={false} /> {t('Approve {n} shown', { n: undecidedShown.length })}
+            </button>
           </div>
         </header>
         {values.length === 0 ? (
-          <p className={styles.muted}>{uncoveredOnly ? t('Every value is covered by a rule.') : t('No values match.')}</p>
+          <p className={styles.muted}>{undecidedOnly ? t('Every value is approved or has a rule.') : t('No values match.')}</p>
         ) : (
           <ul className={styles.values} role="list">
             {values.map((value) => (
               <li key={value.name} className={styles.value}>
                 <span className={styles.valueName}>
-                  {value.covered && <Check size={14} aria-label={t('Covered by a rule')} className={styles.covered} />}
                   {value.name}
+                  <span className={styles[`status_${value.status}`]}>{
+                    value.status === 'approved' ? t('Approved')
+                      : value.status === 'renamed' ? t('Renamed')
+                        : value.status === 'dropped' ? t('Dropped') : t('Not approved')}</span>
                 </span>
                 <span className={styles.valueCount}>{t('{n} books', { n: value.count })}</span>
-                {!value.covered && (
-                  <button type="button" className={styles.linkButton} onClick={() => setPrefill(value.name)}>
-                    {t('Add rule')}
-                  </button>
-                )}
+                <span className={styles.valueActions}>
+                  {value.status === 'unapproved' && (
+                    <>
+                      <button type="button" className={styles.linkButton} disabled={busy}
+                        onClick={() => void approve([value.name])}>{t('Approve')}</button>
+                      <button type="button" className={styles.linkButton} onClick={() => setPrefill(value.name)}>
+                        {t('Add rule')}
+                      </button>
+                    </>
+                  )}
+                  {value.status === 'approved' && data.approved.some((a) => fold(a) === fold(value.name)) && (
+                    <button type="button" className={styles.linkButton} disabled={busy}
+                      onClick={() => void unapprove([value.name])}>{t('Unapprove')}</button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

@@ -125,19 +125,3 @@ def test_library_values_counts_books(library):
     assert {v["name"]: v["count"] for v in values} == {
         "Fiction / Thrillers": 1, "thriller": 1, "General": 1, "Dragons": 1}
 
-
-def test_allow_list_rejects_unmatched_values_but_not_drops(monkeypatch):
-    rules, _ = vm.clean_rules("tags", {"General": [], "Suspense": ["Thriller"]})
-    monkeypatch.setattr(vm, "load_map", lambda session, field: vm.ValueMap.from_rules(rules))
-    kept, rejected = vm.apply_value_map(
-        "tags", ["General", "Suspense", "Dragons", "FIC030000", "thriller"],
-        app_session=object(), allowed=["Dragons"])
-    # Dropped by a rule: not rejected. A map target (Thriller) is allowed even
-    # though no book in ``allowed`` carries it.
-    assert kept == ["Thriller", "Dragons"]
-    assert rejected == ["FIC030000"]
-
-
-def test_without_an_allow_list_nothing_is_rejected(monkeypatch):
-    monkeypatch.setattr(vm, "load_map", lambda session, field: vm.ValueMap())
-    assert vm.apply_value_map("tags", ["Anything"], app_session=object()) == (["Anything"], [])

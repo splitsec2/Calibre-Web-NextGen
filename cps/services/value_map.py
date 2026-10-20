@@ -81,11 +81,12 @@ def clean_rules(field, raw):
 @dataclass
 class ValueMap:
     rules: dict = dc_field(default_factory=dict)       # incoming_key -> [targets]
-    canonical: dict = dc_field(default_factory=dict)   # fold(target) -> target
+    canonical: dict = dc_field(default_factory=dict)   # fold(target) -> target: the approved values
+    approved_only: bool = False                        # drop values no rule covers
 
     @classmethod
-    def from_rules(cls, rules):
-        vm = cls()
+    def from_rules(cls, rules, approved_only=False):
+        vm = cls(approved_only=approved_only)
         for rule in rules:
             vm.rules[rule["incoming_key"]] = list(rule["targets"])
             for target in rule["targets"]:
@@ -102,7 +103,8 @@ class ValueMap:
         A value a rule produced (or re-cased to its canonical target) is
         de-duplicated case- and accent-insensitively. A value no rule covers
         is left as it is, so only an exact repeat of it is dropped: merging
-        "Montreal" with "Montréal" is a rule's job, not a side effect.
+        "Montreal" with "Montréal" is a rule's job, not a side effect. With
+        ``approved_only`` a value no rule covers is dropped instead.
         """
         out, folded, exact = [], set(), set()
         for value in values:
@@ -112,7 +114,7 @@ class ValueMap:
             elif key in self.canonical:
                 produced = [self.canonical[key]]
             else:
-                if value not in exact:
+                if not self.approved_only and value not in exact:
                     exact.add(value)
                     out.append(value)
                 continue
@@ -125,31 +127,27 @@ class ValueMap:
         return out
 
 
-def apply_value_map(field, values, app_session=None, allowed=None):
+def apply_value_map(field, values, app_session=None):
     """Map ``values`` for ``field`` with the stored rules: ``(kept, rejected)``.
 
     The single entry point every caller uses (clean-up preview, ingest,
-    automatic and manual fetch). ``allowed`` is the allow set when "only allow
-    mapped or existing values" is on (the library's values; every map target
-    is added here, since library values are pruned when unused). A value no
-    rule matched and not allowed is rejected; a value a rule drops is not, it
-    has already been ruled on. With ``allowed`` None nothing is rejected.
+    automatic and manual fetch). With "only approved values" on for the field,
+    a value no rule covers is rejected: approved values are the map's targets
+    (an approval is a ``X -> X`` rule). A value a rule drops is not rejected,
+    it has already been ruled on.
     """
     if app_session is None:
         from .. import ub
         app_session = ub.session
     value_map = load_map(app_session, field)
-    if allowed is None:
-        return value_map.map_values(values), []
-    allow_keys = {fold(v) for v in allowed} | set(value_map.canonical)
-    kept, rejected = [], []
-    for value in values:
-        key = fold(value)
-        if key in value_map.rules or key in allow_keys:
-            kept.append(value)
-        else:
-            rejected.append(value)
-    return value_map.map_values(kept), rejected
+    rejected = [v for v in values if value_map.approved_only and not value_map.covers(v)]
+    return value_map.map_values(values), rejected
+
+
+def approved_only(app_session, field):
+    from .. import ub
+    row = app_session.get(ub.MetadataValueField, field)
+    return bool(row and row.approved_only)
 
 
 def load_map(app_session, field):
@@ -158,8 +156,14 @@ def load_map(app_session, field):
             .filter(ub.MetadataValueRule.field == field)
             .order_by(ub.MetadataValueRule.incoming_key).all())
     return ValueMap.from_rules(
-        {"incoming_key": r.incoming_key, "targets": r.targets or []} for r in rows
+        ({"incoming_key": r.incoming_key, "targets": r.targets or []} for r in rows),
+        approved_only=approved_only(app_session, field),
     )
+
+
+def is_approval(incoming, targets):
+    """A ``X -> X`` rule: it approves X rather than changing anything."""
+    return len(targets) == 1 and fold(targets[0]) == fold(incoming)
 
 
 def _book_values(book, field):
@@ -221,7 +225,7 @@ def record_rename(app_session, field, old, new, user_id):
     old_key, new_key = fold(old), fold(new)
     for row in _rules_of(app_session, field):
         targets = row.targets or []
-        if row.incoming_key == new_key and new_key != old_key and [fold(t) for t in targets] != [new_key]:
+        if row.incoming_key == new_key and new_key != old_key and not is_approval(row.incoming, targets):
             app_session.delete(row)
             continue
         if row.incoming_key != old_key and any(fold(t) == old_key for t in targets):
@@ -263,3 +267,54 @@ def restore_rule(app_session, field, incoming, targets, user_id):
             app_session.delete(row)
     else:
         _put(app_session, field, incoming, targets, user_id)
+
+
+def replace_rules(app_session, field, rules, user_id):
+    """Replace the rename/split/drop rules from a Save or an import. Approvals
+    (``X -> X``) already stored are kept unless the new rules rule on X."""
+    incoming_keys = {r["incoming_key"] for r in rules}
+    for row in _rules_of(app_session, field):
+        if not is_approval(row.incoming, row.targets or []) or row.incoming_key in incoming_keys:
+            app_session.delete(row)
+    app_session.flush()
+    for rule in rules:
+        _put(app_session, field, rule["incoming"], rule["targets"], user_id)
+    app_session.commit()
+
+
+def approve(app_session, field, names, user_id):
+    """Approve values with no rule yet. Returns the names skipped because a
+    rule already renames or drops them."""
+    value_map = load_map(app_session, field)
+    skipped = []
+    for name in names:
+        key = fold(name)
+        if key in value_map.canonical:
+            continue
+        if key in value_map.rules:
+            skipped.append(name)
+            continue
+        _put(app_session, field, name, [name], user_id)
+        value_map.canonical[key] = name
+    app_session.commit()
+    return skipped
+
+
+def unapprove(app_session, field, names):
+    """Take values off the approved list: their ``X -> X`` rules go. A value
+    that is also another rule's target stays approved through that rule."""
+    keys = {fold(n) for n in names}
+    for row in _rules_of(app_session, field):
+        if row.incoming_key in keys and is_approval(row.incoming, row.targets or []):
+            app_session.delete(row)
+    app_session.commit()
+
+
+def set_approved_only(app_session, field, on, user_id):
+    from .. import ub
+    row = app_session.get(ub.MetadataValueField, field)
+    if row is None:
+        row = ub.MetadataValueField(field=field)
+        app_session.add(row)
+    row.approved_only, row.updated_by, row.updated_at = bool(on), user_id, datetime.now(timezone.utc)
+    app_session.commit()
