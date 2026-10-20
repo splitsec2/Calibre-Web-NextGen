@@ -921,6 +921,17 @@ class MetadataChange(Base):
     error = Column(Text)
 
 
+class MetadataValueField(Base):
+    """Per-field setting of the value map: ``approved_only`` drops any value
+    no rule covers (approved values are the map's targets)."""
+    __tablename__ = 'metadata_value_field'
+
+    field = Column(String(32), primary_key=True)
+    approved_only = Column(Boolean, nullable=False, default=False)
+    updated_by = Column(Integer)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class MetadataRuleChange(Base):
     """One value-map rule as a change set changed it: ``before``/``after`` are
     the rule's targets (JSON list), null when the rule did not exist. Lets Undo
@@ -4162,8 +4173,8 @@ def migrate_metadata_value_rule_table(engine, _session):
     """Create the value-map and change-set tables on upgraded app.db files."""
     Base.metadata.create_all(
         engine,
-        tables=[MetadataValueRule.__table__, MetadataChangeSet.__table__, MetadataChange.__table__,
-                MetadataRuleChange.__table__],
+        tables=[MetadataValueRule.__table__, MetadataValueField.__table__, MetadataChangeSet.__table__,
+                MetadataChange.__table__, MetadataRuleChange.__table__],
         checkfirst=True,
     )
 
