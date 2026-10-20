@@ -2712,6 +2712,13 @@ class NewBookProcessor:
             # Optional post-import GDrive sync
             gdrive_sync_if_enabled()
 
+            # The clean-up map on the file's own tags and publisher, when it is
+            # on for incoming metadata (#2438). Before the fetch, which maps
+            # what it brings in itself.
+            self.map_incoming_values_if_enabled(
+                self.last_added_book_ids or
+                ([self.last_added_book_id] if self.last_added_book_id is not None else []))
+
             # Fetch metadata if enabled, for the exact book Calibre reported
             self.fetch_metadata_if_enabled(book_id=self.last_added_book_id)
 
@@ -2881,6 +2888,47 @@ class NewBookProcessor:
         except Exception as e:
             print(f"[ingest-processor] An error occurred while processing {os.path.basename(filepath)} with the kindle-epub-fixer. See the following error:\n{e}")
 
+
+    def map_incoming_values_if_enabled(self, book_ids) -> None:
+        """Apply the Metadata clean-up map to books just imported (#2438).
+
+        Each field has its own switch, off by default; with every switch off
+        this reads one app.db row per field and changes nothing. The change is
+        stored like a clean-up run, so it is listed in that page's History and
+        can be undone. A failure leaves the book as imported and never fails
+        the import."""
+        if not _CPS_AVAILABLE or not book_ids:
+            return
+        calibre = None
+        try:
+            from cps import db as cps_db, helper as cps_helper
+            from cps.services import incoming_values
+            if _ub is None or getattr(_ub, "session", None) is None or not cps_db.CalibreDB.session_factory:
+                return
+            calibre = cps_db.CalibreDB(expire_on_commit=False, init=True)
+            with metadata_db_write_lock():
+                change_set = incoming_values.map_new_books(
+                    calibre.session, _ub.session, [int(i) for i in book_ids],
+                    mark_modified=lambda book: cps_helper.mark_book_modified(book, set_dirty=True),
+                    queue_embed=cps_helper.log_metadata_change)
+            if change_set is not None:
+                print(f"[ingest-processor] INFO: Metadata clean-up rules applied to imported book(s) {list(book_ids)} "
+                      f"(change set {change_set.id}, undoable from Metadata clean-up).", flush=True)
+        except Exception as e:
+            print(f"[ingest-processor] WARN: Metadata clean-up rules not applied to {list(book_ids)}: {e}", flush=True)
+            try:
+                if calibre is not None:
+                    calibre.session.rollback()
+                if _ub is not None and getattr(_ub, "session", None) is not None:
+                    _ub.session.rollback()
+            except Exception:
+                pass
+        finally:
+            if calibre is not None:
+                try:
+                    calibre.session.close()
+                except Exception:
+                    pass
 
     def fetch_metadata_if_enabled(self, book_title: str | None = None, book_id: int | None = None) -> None:
         """Fetch and apply metadata for newly ingested books if enabled"""

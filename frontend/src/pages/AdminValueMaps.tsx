@@ -23,7 +23,7 @@ interface SetSummary {
 }
 interface SetDetail extends SetSummary { changes: SetRow[] }
 interface MapState {
-  field: Field; multi: boolean; approved_only: boolean; approved: string[];
+  field: Field; multi: boolean; approved_only: boolean; apply_incoming: boolean; approved: string[];
   rules: Rule[]; values: LibraryValue[]; changes: Change[];
   history: SetSummary[]; files_rewritten: boolean;
 }
@@ -206,6 +206,12 @@ function FieldPanel({ field }: { field: Field }) {
       ? t('Only approved values: on. Values that are not approved and have no rule are dropped in the preview below.')
       : t('Only approved values: off. Values with no rule are kept.'));
 
+  const setApplyIncoming = (on: boolean) => send(
+    () => apiPut(`${endpoint(field)}/settings`, { apply_incoming: on }),
+    () => on
+      ? t('New books: on. The rules are applied to each new book at import and to fetched metadata.')
+      : t('New books: off. New books keep their tags and publisher as they arrive.'));
+
   const approve = (names: string[]) => send(
     () => apiPost(`${endpoint(field)}/approve`, { names }),
     (next) => t('Approved {n} values.', { n: names.length - (next.skipped?.length ?? 0) }));
@@ -273,6 +279,7 @@ function FieldPanel({ field }: { field: Field }) {
   // A Tags page edit stores the edited tag's own rule first; rules that
   // pointed at it come after.
   const describe = (item: SetSummary) => {
+    if (item.source === 'ingest') return t('At import');
     if (item.source !== 'tags_page' && item.source !== 'publishers_page') return t('Clean-up run');
     const isTags = item.source === 'tags_page';
     const own = (item.rule_changes ?? [])[0];
@@ -289,6 +296,22 @@ function FieldPanel({ field }: { field: Field }) {
 
   return (
     <>
+      <section className={styles.card} aria-labelledby={`${field}-incoming`}>
+        <header className={styles.cardHeader}>
+          <h2 id={`${field}-incoming`}>{t('New books')}</h2>
+          <label className={styles.inlineSwitch}>
+            <input type="checkbox" checked={data.apply_incoming} disabled={busy}
+              onChange={(e) => void setApplyIncoming(e.target.checked)} />
+            <span>{t('Apply these rules to new books')}</span>
+          </label>
+        </header>
+        <p className={styles.muted}>
+          {data.apply_incoming
+            ? t('On: each new book’s own values are mapped right after import, and metadata fetched for any book (automatically or from Fetch metadata) arrives mapped. Each import that changes something is listed in History, where it can be undone.')
+            : t('Off: new books keep their values as they arrive. The rules only change books when you apply them here.')}
+        </p>
+      </section>
+
       <section className={styles.card} aria-labelledby={`${field}-approved`}>
         <header className={styles.cardHeader}>
           <h2 id={`${field}-approved`}>

@@ -12,7 +12,8 @@ const values = [
 ];
 
 const emptyState = {
-  field: 'tags', multi: true, approved_only: false, approved: [], rules: [], values, changes: [], history: [],
+  field: 'tags', multi: true, approved_only: false, apply_incoming: false, approved: [], rules: [], values,
+  changes: [], history: [],
   files_rewritten: true,
 };
 
@@ -137,4 +138,22 @@ test('values can be approved, and the only-approved switch is sent as set', asyn
   await page.getByLabel('Only approved values').check();
   expect(sent.settings).toEqual({ approved_only: true });
   await expect(page.getByText(/^On: a value that is not approved/)).toBeVisible();
+});
+
+test('the new-books switch is off by default and sent when turned on', async ({ page }) => {
+  let sent: unknown;
+  let state: Record<string, unknown> = { ...emptyState };
+  await page.route(/\/api\/v1\/admin\/value-maps\/tags$/, (route) => route.fulfill({ json: state }));
+  await page.route(/\/api\/v1\/admin\/value-maps\/tags\/settings$/, async (route) => {
+    sent = route.request().postDataJSON();
+    state = { ...state, apply_incoming: true };
+    await route.fulfill({ json: state });
+  });
+  await page.goto('/app/admin/metadata-cleanup');
+  const box = page.getByLabel('Apply these rules to new books');
+  await expect(box).not.toBeChecked();
+  await expect(page.getByText(/^Off: new books keep their values/)).toBeVisible();
+  await box.check();
+  expect(sent).toEqual({ apply_incoming: true });
+  await expect(page.getByText(/^On: each new book/)).toBeVisible();
 });
