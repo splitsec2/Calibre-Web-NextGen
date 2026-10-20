@@ -882,8 +882,9 @@ class MetadataValueRule(Base):
 class MetadataChangeSet(Base):
     """A reviewed batch of metadata changes: preview, apply, results, undo.
 
-    ``source`` is what proposed it: ``cleanup``, ``tags_page`` (an edit on
-    the Tags page, stored already applied so it can be undone), ``ingest``,
+    ``source`` is what proposed it: ``cleanup``, ``tags_page`` or
+    ``publishers_page`` (an edit on that page, stored already applied so it
+    can be undone), ``ingest``,
     ``auto_fetch``, ``manual_fetch`` or ``batch``. ``status`` is ``proposed``, ``applied`` or
     ``undone``. Rows live in ``metadata_change``.
     """

@@ -24,9 +24,9 @@ from ..services.calibre_db_lock import metadata_db_write_lock
 from ..usermanagement import login_required_if_no_ano
 
 HISTORY_LIMIT = 20
-# Sets this page lists and can undo: its own runs, and Tags page edits
-# (recorded by cps/api/browse.py).
-SOURCES = ("cleanup", "tags_page")
+# Sets this page lists and can undo: its own runs, and Tags and Publishers
+# page edits (recorded by cps/api/browse.py).
+SOURCES = ("cleanup", "tags_page", "publishers_page")
 
 
 def _err(code, message, status):

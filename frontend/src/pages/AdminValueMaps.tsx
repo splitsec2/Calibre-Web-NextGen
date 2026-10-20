@@ -240,13 +240,17 @@ function FieldPanel({ field }: { field: Field }) {
   // A Tags page edit stores the edited tag's own rule first; rules that
   // pointed at it come after.
   const describe = (item: SetSummary) => {
-    if (item.source !== 'tags_page') return t('Clean-up run');
+    if (item.source !== 'tags_page' && item.source !== 'publishers_page') return t('Clean-up run');
+    const isTags = item.source === 'tags_page';
     const own = (item.rule_changes ?? [])[0];
-    if (!own) return t('Tags page edit');
+    if (!own) return isTags ? t('Tags page edit') : t('Publishers page edit');
     const extra = (item.rule_changes ?? []).length - 1;
+    const to = (own.after ?? []).join(', ');
     const main = (own.after ?? []).length === 0
       ? t('Tags page: rule drops “{name}”', { name: own.incoming })
-      : t('Tags page: rule “{from}” → “{to}”', { from: own.incoming, to: (own.after ?? []).join(', ') });
+      : isTags
+        ? t('Tags page: rule “{from}” → “{to}”', { from: own.incoming, to })
+        : t('Publishers page: rule “{from}” → “{to}”', { from: own.incoming, to });
     return extra > 0 ? `${main} ${t('(and {n} rules that pointed at it)', { n: extra })}` : main;
   };
 
@@ -473,7 +477,7 @@ export function AdminValueMaps() {
         {t('One map per field. A rule turns a value into another (rename), several (split) or none (drop), matching regardless of case and accents. Values no rule covers stay as they are. Nothing changes in the library until you apply the preview.')}
       </p>
       <p className={styles.intro}>
-        {t('A rename, merge or delete on the Tags page adds a rule here only when “Also add a rule” is ticked. Every edit made there is listed in History, where it can be undone.')}
+        {t('A rename, merge or delete on the Tags page, or a rename or merge on the Publishers page, adds a rule here only when “Also add a rule” is ticked. Every edit made there is listed in History, where it can be undone.')}
       </p>
       <div className={styles.tabs} role="tablist" aria-label={t('Field')} onKeyDown={onTabKeyDown}>
         {FIELDS.map((item) => (
