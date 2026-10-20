@@ -13,6 +13,7 @@ the change set's job (``services/change_sets.py``). It does not decide where
 the map is applied; callers do.
 """
 import unicodedata
+from datetime import datetime, timezone
 from dataclasses import dataclass, field as dc_field
 
 from sqlalchemy import func
@@ -188,3 +189,77 @@ def plan(calibre_session, value_map, field, book_ids=None):
         if after != before:
             changes.append({"book_id": book.id, "field": field, "old": before, "new": after})
     return changes
+
+
+# --- The stored map, changed one value at a time ----------------------------
+# Used by the Tags page when an admin ticks "Also add a rule" (a rename records
+# old -> new, a delete records a drop), and by Undo. These flush; the caller
+# commits, so the rule and the History entry that records it land together.
+
+def _rules_of(app_session, field):
+    from .. import ub
+    return app_session.query(ub.MetadataValueRule).filter(ub.MetadataValueRule.field == field).all()
+
+
+def _put(app_session, field, incoming, targets, user_id):
+    from .. import ub
+    key = fold(incoming)
+    row = (app_session.query(ub.MetadataValueRule)
+           .filter(ub.MetadataValueRule.field == field, ub.MetadataValueRule.incoming_key == key).first())
+    if row is None:
+        row = ub.MetadataValueRule(field=field, incoming=incoming, incoming_key=key)
+        app_session.add(row)
+    row.incoming, row.targets = incoming, list(targets)
+    row.updated_by, row.updated_at = user_id, datetime.now(timezone.utc)
+    return row
+
+
+def record_rename(app_session, field, old, new, user_id):
+    """``old`` renamed or merged into ``new``: store ``old -> new``, and point
+    every rule that produced ``old`` at ``new``. A rule that renamed or dropped
+    ``new`` itself goes, since the edit says ``new`` is wanted."""
+    old_key, new_key = fold(old), fold(new)
+    for row in _rules_of(app_session, field):
+        targets = row.targets or []
+        if row.incoming_key == new_key and new_key != old_key and [fold(t) for t in targets] != [new_key]:
+            app_session.delete(row)
+            continue
+        if row.incoming_key != old_key and any(fold(t) == old_key for t in targets):
+            merged = []
+            for target in targets:
+                value = new if fold(target) == old_key else target
+                if fold(value) not in {fold(m) for m in merged}:
+                    merged.append(value)
+            row.targets = merged
+    _put(app_session, field, old, [new], user_id)
+    app_session.flush()
+
+
+def record_delete(app_session, field, name, user_id):
+    """``name`` deleted: store a drop for it, and no rule produces it any more
+    (a rule left with no target becomes a drop)."""
+    key = fold(name)
+    for row in _rules_of(app_session, field):
+        targets = row.targets or []
+        if row.incoming_key != key and any(fold(t) == key for t in targets):
+            row.targets = [t for t in targets if fold(t) != key]
+    _put(app_session, field, name, [], user_id)
+    app_session.flush()
+
+
+def rules_snapshot(app_session, field):
+    """``{incoming_key: (incoming, targets)}`` for one field, to diff around an edit."""
+    return {r.incoming_key: (r.incoming, list(r.targets or [])) for r in _rules_of(app_session, field)}
+
+
+def restore_rule(app_session, field, incoming, targets, user_id):
+    """Put one rule back as it was: ``targets`` None means it did not exist."""
+    from .. import ub
+    if targets is None:
+        row = (app_session.query(ub.MetadataValueRule)
+               .filter(ub.MetadataValueRule.field == field,
+                       ub.MetadataValueRule.incoming_key == fold(incoming)).first())
+        if row is not None:
+            app_session.delete(row)
+    else:
+        _put(app_session, field, incoming, targets, user_id)

@@ -23,7 +23,10 @@ from ..services import value_map as vm
 from ..services.calibre_db_lock import metadata_db_write_lock
 from ..usermanagement import login_required_if_no_ano
 
-HISTORY_LIMIT = 10
+HISTORY_LIMIT = 20
+# Sets this page lists and can undo: its own runs, and Tags page edits
+# (recorded by cps/api/browse.py).
+SOURCES = ("cleanup", "tags_page")
 
 
 def _err(code, message, status):
@@ -66,17 +69,18 @@ def _live_preview(field, value_map):
 
 
 def _history(field):
+    in_field = (ub.session.query(ub.MetadataChange.set_id).filter(ub.MetadataChange.field == field)
+                .union(ub.session.query(ub.MetadataRuleChange.set_id)
+                       .filter(ub.MetadataRuleChange.field == field)))
     sets = (ub.session.query(ub.MetadataChangeSet)
-            .filter(ub.MetadataChangeSet.source == "cleanup",
+            .filter(ub.MetadataChangeSet.source.in_(SOURCES),
                     ub.MetadataChangeSet.status != "proposed",
-                    ub.MetadataChangeSet.id.in_(
-                        ub.session.query(ub.MetadataChange.set_id)
-                        .filter(ub.MetadataChange.field == field)))
+                    ub.MetadataChangeSet.id.in_(in_field))
             .order_by(ub.MetadataChangeSet.id.desc()).limit(HISTORY_LIMIT).all())
     out = []
     for change_set in sets:
         summary = cs.summary(ub.session, calibre_db.session, change_set)
-        summary.pop("changes")
+        summary["books"] = len(summary.pop("changes"))
         out.append(summary)
     return out
 
@@ -154,7 +158,7 @@ def value_map_preview(field):
 
 def _load_set(set_id):
     change_set = ub.session.get(ub.MetadataChangeSet, set_id)
-    if change_set is None or change_set.source != "cleanup":
+    if change_set is None or change_set.source not in SOURCES:
         return None
     return change_set
 
@@ -192,8 +196,9 @@ def _run(set_id, action):
                 result = cs.undo(ub.session, calibre_db.session, set_id, **hooks)
     except ValueError as error:
         return _err("conflict", str(error), 409)
-    first = ub.session.query(ub.MetadataChange).filter(ub.MetadataChange.set_id == set_id).first()
-    field = first.field if first is not None else "tags"
+    first = (ub.session.query(ub.MetadataChange.field).filter(ub.MetadataChange.set_id == set_id).first()
+             or ub.session.query(ub.MetadataRuleChange.field).filter(ub.MetadataRuleChange.set_id == set_id).first())
+    field = first[0] if first is not None else "tags"
     return jsonify({
         **result,
         "files_rewritten": _files_rewritten(),
