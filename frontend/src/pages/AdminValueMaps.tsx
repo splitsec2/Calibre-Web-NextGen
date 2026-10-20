@@ -14,9 +14,11 @@ interface Rule { incoming: string; targets: string[] }
 interface LibraryValue { name: string; count: number; covered: boolean }
 interface Change { book_id: number; title: string; authors: string[]; before: string[]; after: string[] }
 interface SetRow extends Change { id: number; status: string; error: string | null }
+interface RuleChange { field: string; incoming: string; before: string[] | null; after: string[] | null; status: string }
 interface SetSummary {
   id: number; source: string; status: 'proposed' | 'applied' | 'undone';
   created_at: string | null; applied_at: string | null; counts: Record<string, number>;
+  rule_changes?: RuleChange[]; books?: number;
 }
 interface SetDetail extends SetSummary { changes: SetRow[] }
 interface MapState {
@@ -234,6 +236,19 @@ function FieldPanel({ field }: { field: Field }) {
   const undo = (setId: number) => run(
     () => apiPost<RunResponse>(`/api/v1/admin/change-sets/${setId}/undo`), 'undo');
 
+  // A Tags page edit stores the edited tag's own rule first; rules that
+  // pointed at it come after.
+  const describe = (item: SetSummary) => {
+    if (item.source !== 'tags_page') return t('Clean-up run');
+    const own = (item.rule_changes ?? [])[0];
+    if (!own) return t('Tags page edit');
+    const extra = (item.rule_changes ?? []).length - 1;
+    const main = (own.after ?? []).length === 0
+      ? t('Tags page: rule drops “{name}”', { name: own.incoming })
+      : t('Tags page: rule “{from}” → “{to}”', { from: own.incoming, to: (own.after ?? []).join(', ') });
+    return extra > 0 ? `${main} ${t('(and {n} rules that pointed at it)', { n: extra })}` : main;
+  };
+
   return (
     <>
       <section className={styles.card} aria-labelledby={`${field}-rules`}>
@@ -405,9 +420,13 @@ function FieldPanel({ field }: { field: Field }) {
             {data.history.map((item) => (
               <li key={item.id} className={styles.historyRow}>
                 <span>
-                  <span className={styles.incoming}>{item.applied_at ? new Date(item.applied_at).toLocaleString() : `#${item.id}`}</span>
+                  <span className={styles.incoming}>{describe(item)}</span>
                   <span className={styles.historyCounts}>
-                    {Object.entries(item.counts).map(([key, n]) => `${t(key)} ${n}`).join(' · ')}
+                    {[
+                      item.applied_at ? new Date(item.applied_at).toLocaleString() : `#${item.id}`,
+                      t('{n} books', { n: item.books ?? 0 }),
+                      ...Object.entries(item.counts).filter(([key]) => key !== item.status).map(([key, n]) => `${t(key)} ${n}`),
+                    ].join(' · ')}
                   </span>
                 </span>
                 {item.status === 'applied' ? (
@@ -451,6 +470,9 @@ export function AdminValueMaps() {
       </div>
       <p className={styles.intro}>
         {t('One map per field. A rule turns a value into another (rename), several (split) or none (drop), matching regardless of case and accents. Values no rule covers stay as they are. Nothing changes in the library until you apply the preview.')}
+      </p>
+      <p className={styles.intro}>
+        {t('A rename, merge or delete on the Tags page adds a rule here only when “Also add a rule” is ticked. Every edit made there is listed in History, where it can be undone.')}
       </p>
       <div className={styles.tabs} role="tablist" aria-label={t('Field')} onKeyDown={onTabKeyDown}>
         {FIELDS.map((item) => (

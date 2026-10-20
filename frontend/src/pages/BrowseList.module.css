@@ -194,4 +194,6 @@
 .rowInput:focus-visible, .rowAction:focus-visible, .rowDanger:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
 .rowConfirm { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); flex-basis: 100%; min-width: 0; font-size: var(--fs-sm); color: var(--text); }
 .rowError { flex-basis: 100%; color: var(--danger); font-size: var(--fs-sm); }
+.rowRule { flex-basis: 100%; display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
+.rowRule input { margin: 0; }
 .actionLabel { margin-inline-start: var(--sp-1); }
