@@ -1,7 +1,7 @@
 import { useMemo, useState, useDeferredValue } from 'react';
 import { Link } from 'wouter';
 import { LayoutGrid, List, Search, Pencil, Trash2, Check, X, Merge } from 'lucide-react';
-import { useEntityList, useMe, useRenameTag, useDeleteTag, tagConflictOf } from '../lib/queries';
+import { useEntityList, useMe, useRenameValue, useDeleteTag, tagConflictOf } from '../lib/queries';
 import type { TagConflict, TagWriteResult } from '../lib/queries';
 import { SPA_ROUTES } from '../lib/routes';
 import { ApiError } from '../lib/api';
@@ -19,7 +19,10 @@ interface BrowseListProps {
   title: string;
 }
 
-/** One tag row with in-place rename and delete (#973).
+/** One tag or publisher row with in-place rename, and delete for tags (#973).
+ *
+ *  Publishers get rename (and merge on a collision) only: a book has one
+ *  publisher, so deleting one would leave books with none.
  *
  *  The reporter asked for these "where I can see all the tags, so I can more
  *  easily dedupe and consolidate" — the tag's own page already had rename, and
@@ -42,13 +45,14 @@ function AddRuleBox({ id, checked, onChange }: { id: string; checked: boolean; o
   );
 }
 
-function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
-  id: number | string; name: string; count: number; href: string;
+function TagRow({ id, name, count, href, kind = 'tag', canAddRule = false, onRule }: {
+  id: number | string; name: string; count: number; href: string; kind?: 'tag' | 'publisher';
   canAddRule?: boolean; onRule?: (rule: AddedRule) => void;
 }) {
   const { t } = useI18n();
   const announce = useAnnouncer();
-  const rename = useRenameTag(id);
+  const isTag = kind === 'tag';
+  const rename = useRenameValue(isTag ? 'tags' : 'publishers', id);
   const remove = useDeleteTag(id);
   const [mode, setMode] = useState<'idle' | 'rename' | 'delete'>('idle');
   const [draft, setDraft] = useState(name);
@@ -60,10 +64,10 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
   const failure = (error: unknown, fallback: string) => {
     if (error instanceof ApiError) {
       const messages: Record<number, string> = {
-        400: t('Enter a valid tag name'),
+        400: isTag ? t('Enter a valid tag name') : t('Enter a valid publisher name'),
         401: t('You must be signed in'),
         403: t('You are not allowed to edit metadata'),
-        404: t('Tag not found'),
+        404: isTag ? t('Tag not found') : t('Publisher not found'),
       };
       return messages[error.status] ?? fallback;
     }
@@ -75,7 +79,7 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
       onSuccess: (result) => {
         announce(result.merged
           ? t('Merged into {name}', { name: result.name })
-          : t('Tag renamed to {name}', { name: result.name }));
+          : isTag ? t('Tag renamed to {name}', { name: result.name }) : t('Publisher renamed to {name}', { name: result.name }));
         if (result.rule) onRule?.(result.rule);
         close();
       },
@@ -84,7 +88,7 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
         const found = tagConflictOf(error);
         if (found && !merge) { setConflict(found); setErr(''); return; }
         setConflict(null);
-        setErr(failure(error, t('Could not rename tag')));
+        setErr(failure(error, isTag ? t('Could not rename tag') : t('Could not rename publisher')));
       },
     });
   };
@@ -96,25 +100,29 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
           e.preventDefault();
           const next = draft.trim();
           setConflict(null);
-          if (!next) { setErr(t('Tag name cannot be empty')); return; }
+          if (!next) { setErr(isTag ? t('Tag name cannot be empty') : t('Publisher name cannot be empty')); return; }
           submit(next);
         }}>
-          <label className="sr-only" htmlFor={`tag-rename-${id}`}>{t('Tag name')}</label>
+          <label className="sr-only" htmlFor={`tag-rename-${id}`}>{isTag ? t('Tag name') : t('Publisher name')}</label>
           <input id={`tag-rename-${id}`} className={styles.rowInput} value={draft} autoFocus
             aria-invalid={!!err} aria-describedby={err ? `tag-rename-err-${id}` : undefined}
             onKeyDown={(e) => { if (e.key === 'Escape') close(); }}
             onChange={(e) => setDraft(e.target.value)} />
           <button type="submit" className={styles.rowAction} disabled={rename.isPending}
-            aria-label={t('Save tag name')}><Check size={17} aria-hidden="true" focusable={false} /></button>
+            aria-label={isTag ? t('Save tag name') : t('Save publisher name')}><Check size={17} aria-hidden="true" focusable={false} /></button>
           <button type="button" className={styles.rowAction} onClick={close}
             aria-label={t('Cancel')}><X size={17} aria-hidden="true" focusable={false} /></button>
           {canAddRule && <AddRuleBox id={`tag-rename-rule-${id}`} checked={addRule} onChange={setAddRule} />}
           {err && <span id={`tag-rename-err-${id}`} className={styles.rowError} role="alert">{err}</span>}
           {conflict && (
             <div className={styles.rowConfirm} role="alert">
-              <span>{conflict.count === 1
-                ? t('“{name}” already exists on {count} book. Merge this tag into it?', { name: conflict.name, count: conflict.count })
-                : t('“{name}” already exists on {count} books. Merge this tag into it?', { name: conflict.name, count: conflict.count })}</span>
+              <span>{isTag
+                ? (conflict.count === 1
+                  ? t('“{name}” already exists on {count} book. Merge this tag into it?', { name: conflict.name, count: conflict.count })
+                  : t('“{name}” already exists on {count} books. Merge this tag into it?', { name: conflict.name, count: conflict.count }))
+                : (conflict.count === 1
+                  ? t('“{name}” already exists on {count} book. Merge this publisher into it?', { name: conflict.name, count: conflict.count })
+                  : t('“{name}” already exists on {count} books. Merge this publisher into it?', { name: conflict.name, count: conflict.count }))}</span>
               <button type="button" className={styles.rowAction} disabled={rename.isPending}
                 onClick={() => submit(conflict.name, true)}
                 aria-label={t('Merge into {name}', { name: conflict.name })}>
@@ -130,7 +138,7 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
     );
   }
 
-  if (mode === 'delete') {
+  if (mode === 'delete' && isTag) {
     return (
       <li className={styles.rowEditing}>
         <div className={styles.rowConfirm} role="alert">
@@ -170,14 +178,16 @@ function TagRow({ id, name, count, href, canAddRule = false, onRule }: {
       <span className={styles.rowActions}>
         <button type="button" className={styles.rowAction}
           onClick={() => { setDraft(name); setErr(''); setConflict(null); setMode('rename'); }}
-          aria-label={t('Rename tag {name}', { name })}>
+          aria-label={isTag ? t('Rename tag {name}', { name }) : t('Rename publisher {name}', { name })}>
           <Pencil size={16} aria-hidden="true" focusable={false} />
         </button>
-        <button type="button" className={styles.rowAction}
-          onClick={() => { setErr(''); setMode('delete'); }}
-          aria-label={t('Delete tag {name}', { name })}>
-          <Trash2 size={16} aria-hidden="true" focusable={false} />
-        </button>
+        {isTag && (
+          <button type="button" className={styles.rowAction}
+            onClick={() => { setErr(''); setMode('delete'); }}
+            aria-label={t('Delete tag {name}', { name })}>
+            <Trash2 size={16} aria-hidden="true" focusable={false} />
+          </button>
+        )}
       </span>
     </li>
   );
@@ -194,7 +204,7 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
   const { data, isLoading, error } = useEntityList(plural);
   // Tag maintenance is an editor action; everyone else sees the plain list.
   const me = useMe().data;
-  const canEditTags = plural === 'tags' && !!me?.role?.edit;
+  const canEditTags = (plural === 'tags' || plural === 'publishers') && !!me?.role?.edit;
   const canAddRule = canEditTags && !!me?.role?.admin;
   const [addedRule, setAddedRule] = useState<AddedRule | null>(null);
   const [q, setQ] = useState('');
@@ -314,7 +324,7 @@ function BrowseListContent({ plural, title }: BrowseListProps) {
             const href = `/${plural}/${encodeURIComponent(String(e.id))}`;
             return canEditTags ? (
               <TagRow key={String(e.id)} id={e.id} name={e.name} count={e.count} href={href}
-                canAddRule={canAddRule} onRule={setAddedRule} />
+                kind={plural === 'publishers' ? 'publisher' : 'tag'} canAddRule={canAddRule} onRule={setAddedRule} />
             ) : (
               <li key={String(e.id)}>
                 <Link href={href} className={styles.item}>

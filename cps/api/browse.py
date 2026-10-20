@@ -164,7 +164,7 @@ log = logger.create()
 
 
 def _wants_rule():
-    """The Tags page's "Also add a rule" box. Honoured for admins only: the
+    """The Tags and Publishers pages' "Also add a rule" box. Honoured for admins only: the
     value map is admin-managed, so an editor's rename stays a one-off edit."""
     payload = request.get_json(silent=True)
     asked = (isinstance(payload, dict) and payload.get("add_rule") is True) or request.args.get("add_rule") == "1"
@@ -172,7 +172,7 @@ def _wants_rule():
 
 
 def _record_page_edit(field, journal, rule=None, subject=None):
-    """Store a Tags page edit as an applied change set, so the clean-up page's
+    """Store a Tags or Publishers page edit as an applied change set, so the clean-up page's
     History lists it and Undo can reverse it. When ``rule`` is given (an admin
     ticked "Also add a rule"), the rule goes into the value map in the same
     commit. Best-effort: the edit itself has already succeeded and is never
@@ -203,6 +203,28 @@ def _record_page_edit(field, journal, rule=None, subject=None):
         return None
 
 
+def _page_rename(model, field, obj_id, name, merge, messages):
+    """A rename or merge from the Tags or Publishers page: the edit itself,
+    then its History entry, and the rule when an admin asked for one."""
+    obj = calibre_db.session.get(model, obj_id)
+    old_name = obj.name if obj is not None else None
+    add_rule = _wants_rule()
+    journal = []
+    response = _rename_or_merge(model, field, obj_id, name, merge, messages, journal=journal)
+    if isinstance(response, tuple) or old_name is None:
+        return response
+    data = response.get_json() or {}
+    new_name = data.get("name")
+    if not new_name or new_name == old_name:
+        return response
+    rule = (lambda vm, s, uid: vm.record_rename(s, field, old_name, new_name, uid)) if add_rule else None
+    recorded = _record_page_edit(field, journal, rule, old_name)
+    if recorded is None:
+        return response
+    data["rule"] = recorded
+    return jsonify(data)
+
+
 def _read_new_name(empty_message, type_message, comma_message=None):
     """``(name, merge, None)`` from the request body, or ``(None, None, error)``."""
     payload = request.get_json(silent=True)
@@ -230,26 +252,10 @@ def rename_tag(tag_id):
         _("Tag name cannot be empty"), _("Tag name must be text"), _("Tag name cannot contain commas"))
     if error is not None:
         return error
-    tag = calibre_db.session.get(db.Tags, tag_id)
-    old_name = tag.name if tag is not None else None
-    add_rule = _wants_rule()
-    journal = []
-    response = _rename_or_merge(db.Tags, "tags", tag_id, name, merge, {
+    return _page_rename(db.Tags, "tags", tag_id, name, merge, {
         "not_found": _("Tag not found"),
         "exists": _("A tag with that name already exists"),
-    }, journal=journal)
-    if isinstance(response, tuple) or old_name is None:
-        return response
-    data = response.get_json() or {}
-    new_name = data.get("name")
-    if not new_name or new_name == old_name:
-        return response
-    rule = (lambda vm, s, uid: vm.record_rename(s, "tags", old_name, new_name, uid)) if add_rule else None
-    recorded = _record_page_edit("tags", journal, rule, old_name)
-    if recorded is None:
-        return response
-    data["rule"] = recorded
-    return jsonify(data)
+    })
 
 
 @api_v1.route("/publishers/<int:publisher_id>", methods=["POST"])
@@ -264,7 +270,7 @@ def rename_publisher(publisher_id):
         _("Publisher name cannot be empty"), _("Publisher name must be text"))
     if error is not None:
         return error
-    return _rename_or_merge(db.Publishers, "publishers", publisher_id, name, merge, {
+    return _page_rename(db.Publishers, "publishers", publisher_id, name, merge, {
         "not_found": _("Publisher not found"),
         "exists": _("A publisher with that name already exists"),
     })
