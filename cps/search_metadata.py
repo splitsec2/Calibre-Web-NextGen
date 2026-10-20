@@ -552,4 +552,14 @@ def metadata_search():
     except Exception as exc:  # pragma: no cover - defensive: never break search
         log.warning("cover boost pass failed: %s", exc)
 
+    # The clean-up map, when it is on for incoming metadata (#2438): the user
+    # picks from tags and publishers as they would be stored. Off, or on any
+    # failure, the results are shown as the providers sent them.
+    try:
+        from .services import incoming_values
+        for item in results:
+            incoming_values.map_search_result(item)
+    except Exception as exc:  # pragma: no cover - defensive: never break search
+        log.warning("value map pass failed: %s", exc)
+
     return make_response(jsonify({"results": results, "providers": provider_status}))

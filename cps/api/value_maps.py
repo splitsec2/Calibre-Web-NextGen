@@ -4,7 +4,7 @@
 
 GET    /api/v1/admin/value-maps/<field>          rules, library values, live preview, history
 PUT    /api/v1/admin/value-maps/<field>          replace the rules (also the import); approvals kept
-PUT    /api/v1/admin/value-maps/<field>/settings  {"approved_only": bool}
+PUT    /api/v1/admin/value-maps/<field>/settings  {"approved_only": bool, "apply_incoming": bool}
 POST   /api/v1/admin/value-maps/<field>/approve   {"names": [...]}: approve values (X -> X)
 POST   /api/v1/admin/value-maps/<field>/unapprove {"names": [...]}
 POST   /api/v1/admin/value-maps/<field>/preview  store the live preview as a change set
@@ -25,9 +25,10 @@ from ..services.calibre_db_lock import metadata_db_write_lock
 from ..usermanagement import login_required_if_no_ano
 
 HISTORY_LIMIT = 20
-# Sets this page lists and can undo: its own runs, and Tags and Publishers
-# page edits (recorded by cps/api/browse.py).
-SOURCES = ("cleanup", "tags_page", "publishers_page")
+# Sets this page lists and can undo: its own runs, Tags and Publishers page
+# edits (cps/api/browse.py), and the map applied to new books at import
+# (cps/services/incoming_values.py).
+SOURCES = ("cleanup", "tags_page", "publishers_page", "ingest")
 
 
 def _err(code, message, status):
@@ -119,6 +120,7 @@ def _state(field):
         "field": field,
         "multi": FIELD_SPECS[field].multi,
         "approved_only": value_map.approved_only,
+        "apply_incoming": vm.apply_incoming(ub.session, field),
         "approved": sorted(approved, key=vm.fold),
         "rules": rules,
         "values": values,
@@ -169,9 +171,12 @@ def value_map_settings(field):
     if guard is not None:
         return guard
     payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or not isinstance(payload.get("approved_only"), bool):
-        return _err("invalid_request", "approved_only must be true or false", 400)
-    vm.set_approved_only(ub.session, field, payload["approved_only"], current_user.id)
+    keys = ("approved_only", "apply_incoming")
+    if (not isinstance(payload, dict) or not any(k in payload for k in keys)
+            or not all(isinstance(payload[k], bool) for k in keys if k in payload)):
+        return _err("invalid_request", "approved_only and apply_incoming must be true or false", 400)
+    vm.set_field_settings(ub.session, field, current_user.id,
+                          approved_only=payload.get("approved_only"), apply_incoming=payload.get("apply_incoming"))
     return jsonify(_state(field))
 
 

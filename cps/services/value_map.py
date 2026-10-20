@@ -150,6 +150,13 @@ def approved_only(app_session, field):
     return bool(row and row.approved_only)
 
 
+def apply_incoming(app_session, field):
+    """Whether the map is applied to incoming values (import, fetch) for ``field``."""
+    from .. import ub
+    row = app_session.get(ub.MetadataValueField, field)
+    return bool(row and row.apply_incoming)
+
+
 def load_map(app_session, field):
     from .. import ub
     rows = (app_session.query(ub.MetadataValueRule)
@@ -310,11 +317,20 @@ def unapprove(app_session, field, names):
     app_session.commit()
 
 
-def set_approved_only(app_session, field, on, user_id):
+def set_field_settings(app_session, field, user_id, *, approved_only=None, apply_incoming=None):
+    """Change a field's settings; ``None`` leaves that one as it is."""
     from .. import ub
     row = app_session.get(ub.MetadataValueField, field)
     if row is None:
-        row = ub.MetadataValueField(field=field)
+        row = ub.MetadataValueField(field=field, approved_only=False, apply_incoming=False)
         app_session.add(row)
-    row.approved_only, row.updated_by, row.updated_at = bool(on), user_id, datetime.now(timezone.utc)
+    if approved_only is not None:
+        row.approved_only = bool(approved_only)
+    if apply_incoming is not None:
+        row.apply_incoming = bool(apply_incoming)
+    row.updated_by, row.updated_at = user_id, datetime.now(timezone.utc)
     app_session.commit()
+
+
+def set_approved_only(app_session, field, on, user_id):
+    set_field_settings(app_session, field, user_id, approved_only=on)
