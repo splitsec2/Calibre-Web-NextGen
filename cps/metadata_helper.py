@@ -225,6 +225,15 @@ def _apply_metadata_to_book(book, metadata, calibre_db_instance) -> bool:
                     calibre_db_instance.session.add(comment)
                 updated = True
             
+        # The clean-up map, when it is on for incoming metadata (#2438): a
+        # fetched "Penguin Books Ltd" arrives as "Penguin", a dropped tag never
+        # arrives. Off, or on any failure, the values are used as fetched.
+        from cps.services import incoming_values
+        if getattr(metadata, 'publisher', None):
+            metadata.publisher = incoming_values.map_one("publishers", metadata.publisher)
+        if getattr(metadata, 'tags', None):
+            metadata.tags = incoming_values.map_values("tags", metadata.tags)
+
         # Update publisher - only if enabled in settings
         if (cwa_settings.get('auto_metadata_update_publisher', True) and 
             metadata.publisher and metadata.publisher.strip()):
