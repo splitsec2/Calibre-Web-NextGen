@@ -873,8 +873,9 @@ class MetadataValueRule(Base):
 class MetadataChangeSet(Base):
     """A reviewed batch of metadata changes: preview, apply, results, undo.
 
-    ``source`` is what proposed it: ``cleanup``, ``ingest``, ``auto_fetch``,
-    ``manual_fetch`` or ``batch``. ``status`` is ``proposed``, ``applied`` or
+    ``source`` is what proposed it: ``cleanup``, ``tags_page`` (an edit on
+    the Tags page, stored already applied so it can be undone), ``ingest``,
+    ``auto_fetch``, ``manual_fetch`` or ``batch``. ``status`` is ``proposed``, ``applied`` or
     ``undone``. Rows live in ``metadata_change``.
     """
     __tablename__ = 'metadata_change_set'
@@ -907,6 +908,24 @@ class MetadataChange(Base):
     old_value = Column(JSON)
     new_value = Column(JSON)
     status = Column(String(16), nullable=False, default='proposed')
+    error = Column(Text)
+
+
+class MetadataRuleChange(Base):
+    """One value-map rule as a change set changed it: ``before``/``after`` are
+    the rule's targets (JSON list), null when the rule did not exist. Lets Undo
+    put the rules back as well as the books (a Tags page edit may record a rule
+    and move others)."""
+    __tablename__ = 'metadata_rule_change'
+    __table_args__ = (Index('ix_metadata_rule_change_set', 'set_id'),)
+
+    id = Column(Integer, primary_key=True)
+    set_id = Column(Integer, ForeignKey('metadata_change_set.id', ondelete='CASCADE'), nullable=False)
+    field = Column(String(32), nullable=False)
+    incoming = Column(String, nullable=False)
+    before = Column(JSON)
+    after = Column(JSON)
+    status = Column(String(16), nullable=False, default='applied')
     error = Column(Text)
 
 
@@ -3989,7 +4008,8 @@ def migrate_metadata_value_rule_table(engine, _session):
     """Create the value-map and change-set tables on upgraded app.db files."""
     Base.metadata.create_all(
         engine,
-        tables=[MetadataValueRule.__table__, MetadataChangeSet.__table__, MetadataChange.__table__],
+        tables=[MetadataValueRule.__table__, MetadataChangeSet.__table__, MetadataChange.__table__,
+                MetadataRuleChange.__table__],
         checkfirst=True,
     )
 
