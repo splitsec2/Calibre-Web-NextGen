@@ -88,11 +88,16 @@ def test_automatic_fetch_applies_the_map_to_what_it_brings(monkeypatch, app_db):
     _rules(app_db, {"FIC030000": [], "Fiction / Thrillers": ["Thriller"]})
     _rules(app_db, {"Penguin Books Ltd": ["Penguin"]}, field="publishers")
     book = _Book()
+    recorder = _Log()
+    monkeypatch.setattr(iv, "log", recorder)
     with patch.object(ub, "session", app_db):
         m._apply_metadata_to_book(book, _meta(tags=["FIC030000", "Fiction / Thrillers"],
                                               publisher="Penguin Books Ltd"), _FakeCDB())
     assert [t.name for t in book.tags] == ["Thriller"]
     assert [p.name for p in book.publishers] == ["Penguin"]
+    # Unattended, so each change is logged at info with the book and the rule.
+    assert len(recorder.info_lines) == 2
+    assert all(line.startswith("Metadata clean-up, automatic fetch for book 1, ") for line in recorder.info_lines)
 
 
 def test_the_settings_route_sets_one_switch_and_keeps_the_other(call):
@@ -147,3 +152,60 @@ def test_the_import_step_never_fails_an_import(monkeypatch, tmp_path, capsys, ou
         calibre.session.rollback.assert_called_once()
         app_session.rollback.assert_called_once()
     calibre.session.close.assert_called_once()
+
+
+class _Log:
+    def __init__(self):
+        self.info_lines, self.debug_lines = [], []
+
+    def info(self, message, *args):
+        self.info_lines.append(message % args)
+
+    def debug(self, message, *args):
+        self.debug_lines.append(message % args)
+
+    def warning(self, message, *args):
+        self.info_lines.append("WARNING " + message % args)
+
+
+def test_explain_names_the_rule_behind_each_change(app_db):  # noqa: F811
+    _rules(app_db, {"Fiction / Thrillers": ["Thriller", "Fiction"], "General": [], "thriller": ["Thriller"]})
+    value_map = vm.load_map(app_db, "tags")
+    assert value_map.explain(["Fiction / Thrillers", "General", "Thriller", "Dragons"]) == [
+        '"Fiction / Thrillers" became \'Thriller\', \'Fiction\' by the rule for "Fiction / Thrillers"',
+        '"General" dropped by the rule for "General"',
+    ]
+    vm.set_approved_only(app_db, "tags", True, 1)
+    assert vm.load_map(app_db, "tags").explain(["Dragons", "fiction"]) == [
+        '"Dragons" dropped: not an approved value',
+        '"fiction" became "Fiction", the approved spelling',
+    ]
+
+
+def test_an_import_logs_which_rule_changed_which_value(monkeypatch, library, app_db):  # noqa: F811
+    _rules(app_db, {"Fiction / Thrillers": ["Thriller"], "General": []})
+    recorder = _Log()
+    monkeypatch.setattr(iv, "log", recorder)
+    iv.map_new_books(library, app_db, [1], mark_modified=lambda b: None, queue_embed=lambda b, c: None)
+    (line,) = recorder.info_lines
+    assert line.startswith("Metadata clean-up, import of book 1, tags: ")
+    assert 'by the rule for "Fiction / Thrillers"' in line and '"General" dropped by the rule for "General"' in line
+
+
+def test_automatic_fetch_logs_the_rule_and_manual_results_only_at_debug(monkeypatch, app_db):  # noqa: F811
+    _rules(app_db, {"FIC030000": []})
+    recorder = _Log()
+    monkeypatch.setattr(iv, "log", recorder)
+    assert iv.map_values("tags", ["FIC030000", "Dragons"], app_db, context="automatic fetch for book 7") == ["Dragons"]
+    assert recorder.info_lines == [
+        'Metadata clean-up, automatic fetch for book 7, tags: "FIC030000" dropped by the rule for "FIC030000"']
+    iv.map_search_result({"tags": ["FIC030000"]}, app_db)
+    assert len(recorder.info_lines) == 1 and len(recorder.debug_lines) == 1
+
+
+def test_nothing_is_logged_when_nothing_changes(monkeypatch, app_db):  # noqa: F811
+    _rules(app_db, {"FIC030000": []})
+    recorder = _Log()
+    monkeypatch.setattr(iv, "log", recorder)
+    iv.map_values("tags", ["Dragons"], app_db, context="automatic fetch for book 7")
+    assert recorder.info_lines == [] and recorder.debug_lines == []

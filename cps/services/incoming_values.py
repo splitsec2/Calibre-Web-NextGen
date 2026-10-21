@@ -26,24 +26,41 @@ def _app_session(app_session):
     return ub.session
 
 
-def map_values(field, values, app_session=None):
-    """``values`` mapped for ``field`` when the field's switch is on, else as given."""
+def map_values(field, values, app_session=None, context=None):
+    """``values`` mapped for ``field`` when the field's switch is on, else as given.
+
+    ``context`` names where the values came from ("automatic fetch for book
+    12"); each change is then logged with the rule that made it. Without it
+    (manual-fetch results, which the user sees) the lines go to debug.
+    """
     values = [v for v in (values or []) if v and v.strip()]
     try:
         session = _app_session(app_session)
         if session is None or not vm.apply_incoming(session, field):
             return values
-        return vm.load_map(session, field).map_values(values)
+        value_map = vm.load_map(session, field)
+        _log_changes(value_map, field, values, context)
+        return value_map.map_values(values)
     except Exception as error:
         log.warning("Value map not applied to incoming %s: %s", field, error)
         return values
 
 
-def map_one(field, value, app_session=None):
+def _log_changes(value_map, field, values, context):
+    lines = value_map.explain(values)
+    if not lines:
+        return
+    if context:
+        log.info("Metadata clean-up, %s, %s: %s", context, field, "; ".join(lines))
+    else:
+        log.debug("Metadata clean-up, fetched %s: %s", field, "; ".join(lines))
+
+
+def map_one(field, value, app_session=None, context=None):
     """A single-valued field (a publisher): the mapped value, or None when a rule drops it."""
     if not value or not value.strip():
         return value
-    mapped = map_values(field, [value.strip()], app_session)
+    mapped = map_values(field, [value.strip()], app_session, context)
     return mapped[0] if mapped else None
 
 
@@ -78,6 +95,7 @@ def map_new_books(calibre_session, app_session, book_ids, *, mark_modified, queu
             before = cs.current_values(book, field)
             after = maps[field].map_values(before)
             if after != before:
+                _log_changes(maps[field], field, before, f"import of book {book_id}")
                 changes.append({"book_id": book_id, "field": field, "old": before, "new": after})
     if not changes:
         return None
