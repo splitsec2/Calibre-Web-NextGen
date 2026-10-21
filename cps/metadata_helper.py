@@ -229,10 +229,12 @@ def _apply_metadata_to_book(book, metadata, calibre_db_instance) -> bool:
         # fetched "Penguin Books Ltd" arrives as "Penguin", a dropped tag never
         # arrives. Off, or on any failure, the values are used as fetched.
         from cps.services import incoming_values
+        fetched_for = f"automatic fetch for book {book_id}"
         if getattr(metadata, 'publisher', None):
-            metadata.publisher = incoming_values.map_one("publishers", metadata.publisher)
+            metadata.publisher = incoming_values.map_one("publishers", metadata.publisher,
+                                                         context=fetched_for)
         if getattr(metadata, 'tags', None):
-            metadata.tags = incoming_values.map_values("tags", metadata.tags)
+            metadata.tags = incoming_values.map_values("tags", metadata.tags, context=fetched_for)
 
         # Update publisher - only if enabled in settings
         if (cwa_settings.get('auto_metadata_update_publisher', True) and 
