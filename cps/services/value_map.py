@@ -83,12 +83,14 @@ class ValueMap:
     rules: dict = dc_field(default_factory=dict)       # incoming_key -> [targets]
     canonical: dict = dc_field(default_factory=dict)   # fold(target) -> target: the approved values
     approved_only: bool = False                        # drop values no rule covers
+    labels: dict = dc_field(default_factory=dict)      # incoming_key -> the rule's incoming as typed
 
     @classmethod
     def from_rules(cls, rules, approved_only=False):
         vm = cls(approved_only=approved_only)
         for rule in rules:
             vm.rules[rule["incoming_key"]] = list(rule["targets"])
+            vm.labels[rule["incoming_key"]] = rule.get("incoming") or rule["incoming_key"]
             for target in rule["targets"]:
                 vm.canonical.setdefault(fold(target), target)
         return vm
@@ -125,6 +127,29 @@ class ValueMap:
                     exact.add(item)
                     out.append(item)
         return out
+
+    def explain(self, values):
+        """One line per value the map changes, naming the rule that did it, so
+        a log can say why a value came out different or disappeared."""
+        lines = []
+        for value in values:
+            key = fold(value)
+            if key in self.rules:
+                targets = self.rules[key]
+                if targets == [value]:
+                    continue
+                rule = self.labels.get(key, key)
+                if not targets:
+                    lines.append(f'"{value}" dropped by the rule for "{rule}"')
+                else:
+                    lines.append(f'"{value}" became {", ".join(repr(t) for t in targets)} '
+                                 f'by the rule for "{rule}"')
+            elif key in self.canonical:
+                if self.canonical[key] != value:
+                    lines.append(f'"{value}" became "{self.canonical[key]}", the approved spelling')
+            elif self.approved_only:
+                lines.append(f'"{value}" dropped: not an approved value')
+        return lines
 
 
 def apply_value_map(field, values, app_session=None):
@@ -163,7 +188,7 @@ def load_map(app_session, field):
             .filter(ub.MetadataValueRule.field == field)
             .order_by(ub.MetadataValueRule.incoming_key).all())
     return ValueMap.from_rules(
-        ({"incoming_key": r.incoming_key, "targets": r.targets or []} for r in rows),
+        ({"incoming_key": r.incoming_key, "incoming": r.incoming, "targets": r.targets or []} for r in rows),
         approved_only=approved_only(app_session, field),
     )
 
