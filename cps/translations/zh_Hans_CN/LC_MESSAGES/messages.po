@@ -15312,14 +15312,11 @@ msgstr "启用智能元数据应用"
 
 #: cps/templates/cwa_settings.html
 msgid ""
-"When enabled, fetched metadata will only replace existing data if it appears "
-"to be better quality (e.g., longer descriptions, higher resolution covers). "
-"When disabled, fetched metadata will replace existing data as-is from the "
-"preferred provider."
+"When enabled, fetched metadata only fills in what a book is missing (for "
+"example an empty description, a missing series or cover) and adds new tags, "
+"but never replaces data the book already has. When disabled, fetched "
+"metadata will replace existing data as-is from the preferred provider."
 msgstr ""
-"启用后，仅当获取到的元数据质量似乎更好（例如，更长的简介、更高分辨率的封面）"
-"时，才会替换现有数据。禁用后，将按原样使用首选提供商获取到的元数据替换现有数"
-"据。"
 
 #: cps/templates/cwa_settings.html
 msgid "Metadata Fields to Update"
@@ -18823,6 +18820,16 @@ msgstr "向 OPDS 开放选定书架"
 #: cps/templates/user_table.html
 msgid "Show Read/Unread Section"
 msgstr "显示已读、未读栏目"
+
+#~ msgid ""
+#~ "When enabled, fetched metadata will only replace existing data if it "
+#~ "appears to be better quality (e.g., longer descriptions, higher "
+#~ "resolution covers). When disabled, fetched metadata will replace existing "
+#~ "data as-is from the preferred provider."
+#~ msgstr ""
+#~ "启用后，仅当获取到的元数据质量似乎更好（例如，更长的简介、更高分辨率的封"
+#~ "面）时，才会替换现有数据。禁用后，将按原样使用首选提供商获取到的元数据替换"
+#~ "现有数据。"
 
 #, fuzzy
 #~ msgid "Rating updated"
