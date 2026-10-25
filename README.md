@@ -12,7 +12,7 @@ until upstream merges or declines it.
 
 ### In the image
 
-My server runs `cleanup-v4.1.51-1`, built from branch `preview/value-map-v4.1.51`: v4.1.51 with every
+My server runs `cleanup-v4.1.54-1`, built from branch `preview/value-map-v4.1.54`: v4.1.54 with every
 change in this table. #2426 and #2568 touch the same function, so they are merged by hand there.
 
 | Change | Origin |
@@ -20,10 +20,8 @@ change in this table. #2426 and #2568 touch the same function, so they are merge
 | Optional Cloudflare Access JWT check on reverse-proxy header login. With a team domain and an AUD set in Admin > Security, a request that only carries the email header is refused and the signed `Cf-Access-Jwt-Assertion` is verified instead. Off until both fields are set | This fork, open upstream as issue [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480). Branch `feat/verify-cloudflare-access-jwt`, waiting on the maintainer's decision about the PyJWT dependency |
 | Reverse proxy auth: an auto-created user gets a valid email, and a header email that another account already has logs into that account (branch `fix/reverse-proxy-email-when-username-is-email`) | This fork, open upstream as [#2426](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2426) |
 | Every per-request account lookup re-reads the row, so a password or role set by another process is seen at once and a disabled account cannot keep downloading over OPDS (branch `fix/reread-account-each-request`) | This fork, open upstream as [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568), from issue [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) |
-| Smart metadata mode only fills a missing title or description instead of letting a longer one win, because a summary or study guide's title is nearly always longer than the book's (branch `fix/smart-mode-fill-only`) | This fork, merged upstream as [#2694](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2694) (adopts my #2669), not in a release yet. It went to Calibre-Web-Automated as [#1589](https://github.com/crocodilestick/calibre-web-automated/pull/1589) first |
 | A metadata clean-up page (Admin > Configuration > Metadata clean-up). A stored map for tags and publishers renames, splits or drops a value, matched regardless of case and accents. The page previews every book that would change and applies it with per-book results and Undo. A rename, merge or delete on the Tags or Publishers page adds a rule only when an admin ticks "Also add a rule", and every page edit can be undone from History. Values can be approved, with an "Only approved values" switch. A per-field "Apply these rules to new books" switch, off by default, maps values at import and on metadata fetch, and logs which rule changed which value. I ran it here before sending it, because it is a large change | This fork. The map, preview and apply part for tags is open upstream as [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668), as invited in [Discussion #2481](https://github.com/new-usemame/Calibre-Web-NextGen/discussions/2481) for [#2438](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2438). The rest is not sent yet: the maintainer asked for it one PR at a time on top of #2668 (the Tags page box, publishers, approved values, then new books), and the plan is agreed in the Discussion |
-| Auto metadata fetch fills a missing series from the providers that carry one. It used to stop at the first match, and Google Books, Open Library and IBDb never return a series. A series spelled differently ("Red Rising Saga", "The Chronicles of Narnia (Publication Order)") joins the one already in the library, and positions like 24.5 survive Kobo, Amazon and Goodreads | This fork, open upstream as draft [#2684](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2684). A draft until it has filled real books here |
-| Wikidata as a metadata provider, mainly for series and series order, asked after Hardcover when a series is missing | This fork, open upstream as [#2691](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2691), split from #2684 because a new outside service is the maintainer's call |
+| Wikidata as a metadata provider, mainly for series and series order. When a matched record has no series, the series fill asks it after Hardcover and Kobo | This fork, open upstream as [#2691](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2691), split from #2684 because a new outside service is the maintainer's call |
 | ISBNs are checked by their check digit wherever one picks a record, a cover or a lookup, so an ISBN-10 matches its ISBN-13 and a junk value matches nothing | This fork, open upstream as [#2682](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2682) |
 | A manual amd64 image build to GHCR (`fork-image.yml`) | This fork. Fork only |
 
@@ -36,7 +34,7 @@ change in this table. #2426 and #2568 touch the same function, so they are merge
 
 ## Upstream first
 
-Anything that is not specific to this household goes upstream and does not live here. Eight
+Anything that is not specific to this household goes upstream and does not live here. Nine
 changes have merged so far. The maintainer adopts a PR onto the project's own branch with
 credit, so each one landed under a new PR number and my original PR was closed.
 
@@ -59,7 +57,9 @@ Merged:
 - [#2664](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2664) auto metadata fetch records a text-only change, so it reaches
   the book file (adopts my #2612). In v4.1.50
 - [#2694](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2694) smart metadata mode only fills a missing title or
-  description (adopts my #2669). Merged 2026-10-21, after v4.1.51
+  description (adopts my #2669). In v4.1.52
+- [#2705](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2705) auto metadata fetch fills a missing series from the
+  providers that carry one (adopts my #2684). In v4.1.53
 
 Open:
 
@@ -67,7 +67,6 @@ Open:
 - [#2568](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2568) re-read the account on each request
 - [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668) metadata clean-up: a tag map with preview, apply and undo
 - [#2682](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2682) ISBN check digits wherever an ISBN picks a record, a cover or a lookup
-- [#2684](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2684) auto metadata fetch fills a missing series (draft)
 - [#2691](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2691) Wikidata provider for series and series order
 - [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480) Cloudflare Access JWT check (issue)
 - [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
@@ -81,8 +80,8 @@ at a time.
 
 `main` is upstream's `main` plus the image workflow and this README, merged forward from
 time to time. The image is built from a branch named for what it carries by running the workflow
-by hand. `fork/live-v4.1.51` is v4.1.51 with the fork's own changes except the metadata clean-up, series and ISBN work, and
-`preview/value-map-v4.1.51` adds those on top of it (the `v4.1.47` branches are what ran before):
+by hand. `fork/live-v4.1.54` is v4.1.54 with the fork's own changes except the metadata clean-up, Wikidata and ISBN work, and
+`preview/value-map-v4.1.54` adds those on top of it (the `v4.1.51` and `v4.1.47` branches are what ran before):
 
 ```bash
 gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> -f tag=<tag>
@@ -90,7 +89,7 @@ gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> 
 
 Images are `ghcr.io/splitsec2/calibre-web-nextgen:<tag>`, and I pin them by tag and digest.
 To roll back, point the compose file at the upstream image of the same version
-(`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.51`). The library is untouched. The JWT check adds two settings columns to `app.db`
+(`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.54`). The library is untouched. The JWT check adds two settings columns to `app.db`
 (`config_reverse_proxy_access_team_domain` and `config_reverse_proxy_access_aud`), and the
 clean-up page adds five tables (`metadata_value_rule`, `metadata_value_field`,
 `metadata_change_set`, `metadata_change`, `metadata_rule_change`), which upstream ignores.
