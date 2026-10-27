@@ -12,7 +12,7 @@ until upstream merges or declines it.
 
 ### In the image
 
-My server runs `cleanup-v4.1.54-1`, built from branch `preview/value-map-v4.1.54`: v4.1.54 with every
+My server runs `cleanup-v4.1.55-1`, built from branch `preview/value-map-v4.1.55`: v4.1.55 with every
 change in this table. #2426 and #2568 touch the same function, so they are merged by hand there.
 
 | Change | Origin |
@@ -80,8 +80,8 @@ at a time.
 
 `main` is upstream's `main` plus the image workflow and this README, merged forward from
 time to time. The image is built from a branch named for what it carries by running the workflow
-by hand. `fork/live-v4.1.54` is v4.1.54 with the fork's own changes except the metadata clean-up, Wikidata and ISBN work, and
-`preview/value-map-v4.1.54` adds those on top of it (the `v4.1.51` and `v4.1.47` branches are what ran before):
+by hand. `fork/live-v4.1.55` is v4.1.55 with the fork's own changes except the metadata clean-up, Wikidata and ISBN work, and
+`preview/value-map-v4.1.55` adds those on top of it (the `v4.1.54`, `v4.1.51` and `v4.1.47` branches are what ran before):
 
 ```bash
 gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> -f tag=<tag>
@@ -89,7 +89,7 @@ gh workflow run fork-image.yml -R splitsec2/Calibre-Web-NextGen -f ref=<branch> 
 
 Images are `ghcr.io/splitsec2/calibre-web-nextgen:<tag>`, and I pin them by tag and digest.
 To roll back, point the compose file at the upstream image of the same version
-(`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.54`). The library is untouched. The JWT check adds two settings columns to `app.db`
+(`ghcr.io/new-usemame/calibre-web-nextgen:v4.1.55`). The library is untouched. The JWT check adds two settings columns to `app.db`
 (`config_reverse_proxy_access_team_domain` and `config_reverse_proxy_access_aud`), and the
 clean-up page adds five tables (`metadata_value_rule`, `metadata_value_field`,
 `metadata_change_set`, `metadata_change`, `metadata_rule_change`), which upstream ignores.
