@@ -12,7 +12,7 @@ until upstream merges or declines it.
 
 ### In the image
 
-My server runs `cleanup-v4.1.55-1`, built from branch `preview/value-map-v4.1.55`: v4.1.55 with every
+My server runs `cleanup-v4.1.55-2`, built from branch `preview/value-map-v4.1.55`: v4.1.55 with every
 change in this table. #2426 and #2568 touch the same function, so they are merged by hand there.
 
 | Change | Origin |
@@ -23,6 +23,7 @@ change in this table. #2426 and #2568 touch the same function, so they are merge
 | A metadata clean-up page (Admin > Configuration > Metadata clean-up). A stored map for tags and publishers renames, splits or drops a value, matched regardless of case and accents. The page previews every book that would change and applies it with per-book results and Undo. A rename, merge or delete on the Tags or Publishers page adds a rule only when an admin ticks "Also add a rule", and every page edit can be undone from History. Values can be approved, with an "Only approved values" switch. A per-field "Apply these rules to new books" switch, off by default, maps values at import and on metadata fetch, and logs which rule changed which value. I ran it here before sending it, because it is a large change | This fork. The map, preview and apply part for tags is open upstream as [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668), as invited in [Discussion #2481](https://github.com/new-usemame/Calibre-Web-NextGen/discussions/2481) for [#2438](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2438). The rest is not sent yet: the maintainer asked for it one PR at a time on top of #2668 (the Tags page box, publishers, approved values, then new books), and the plan is agreed in the Discussion |
 | Wikidata as a metadata provider, mainly for series and series order. When a matched record has no series, the series fill asks it after Hardcover and Kobo | This fork, open upstream as [#2691](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2691), split from #2684 because a new outside service is the maintainer's call |
 | ISBNs are checked by their check digit wherever one picks a record, a cover or a lookup, so an ISBN-10 matches its ISBN-13 and a junk value matches nothing | This fork, open upstream as [#2682](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2682) |
+| Pillow 13.0.0. Pillow 12.3.0 has critical advisories fixed only in 13.0.0 (heap overflows in JPEG and FlashPix decoding, argument injection in the Ghostscript call), and the `<13.0.0` cap kept every build on 12.3.0 | This fork, open upstream as [#2819](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2819) |
 | A manual amd64 image build to GHCR (`fork-image.yml`) | This fork. Fork only |
 
 ### Not sent yet
@@ -68,6 +69,7 @@ Open:
 - [#2668](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2668) metadata clean-up: a tag map with preview, apply and undo
 - [#2682](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2682) ISBN check digits wherever an ISBN picks a record, a cover or a lookup
 - [#2691](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2691) Wikidata provider for series and series order
+- [#2819](https://github.com/new-usemame/Calibre-Web-NextGen/pull/2819) allow Pillow 13
 - [#2480](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2480) Cloudflare Access JWT check (issue)
 - [#2567](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2567) stale account after an outside password or role change (issue)
 - [#2572](https://github.com/new-usemame/Calibre-Web-NextGen/issues/2572) New UI password for proxy-created accounts (issue)
