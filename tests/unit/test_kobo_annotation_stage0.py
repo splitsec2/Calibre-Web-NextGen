@@ -823,6 +823,8 @@ def test_instance_gate_executes_real_admin_configuration_save(monkeypatch):
         "config_reverse_proxy_auto_create_users": False,
         "config_allow_reverse_proxy_header_login": False,
         "config_reverse_proxy_login_header_name": "",
+        "config_reverse_proxy_access_team_domain": "",
+        "config_reverse_proxy_access_aud": "",
     }.items():
         monkeypatch.setattr(admin.config, name, value, raising=False)
 
