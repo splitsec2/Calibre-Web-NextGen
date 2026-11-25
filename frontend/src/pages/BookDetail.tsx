@@ -2,9 +2,9 @@ import { BookReview } from '../components/BookReview';
 import { PersonalRating } from '../components/PersonalRating';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, Fragment } from 'react';
 import { Link, useParams, useLocation } from 'wouter';
-import { Download, Pencil, Star, Archive, EyeOff, Eye, Send, Highlighter, Image as ImageIcon, Plus, X, BookOpen, BookCheck, BookPlus, BookX, Glasses, Trash2, RefreshCw, TabletSmartphone, Settings, Upload as UploadIcon } from 'lucide-react';
+import { Download, Pencil, Star, Archive, EyeOff, Eye, Send, Highlighter, Image as ImageIcon, Plus, X, BookOpen, BookCheck, BookPlus, BookX, RotateCcw, Glasses, Trash2, RefreshCw, TabletSmartphone, Settings, Upload as UploadIcon } from 'lucide-react';
 import {
-  useBook, useToggleRead, useStopReading, useSetReadingStatus, useToggleFavorite, useToggleArchived, useToggleHidden,
+  useBook, useToggleRead, useStopReading, useClearReadingPosition, useSetReadingStatus, useToggleFavorite, useToggleArchived, useToggleHidden,
   useSendToEreader, useMe, useAccount, useUpdateMetadata, useDeleteBook, useReloadMetadata,
   useBookShelves, useShelves, useKoboTwoWayAnnotations, selectKoboTwoWayBook,
   useAddToMyLibrary, useMyLibraryRemovalImpact, useRemoveFromMyLibrary,
@@ -26,7 +26,7 @@ import { ApiError, resourceUrl, resourceSrcSet, TASK_FAILED, TASK_FINISHED, TASK
 import { useT, useI18n } from '../lib/i18n';
 import { formatCustomColumnDate, formatPublishedDate } from '../lib/customColumnDisplay';
 import { getPrimaryReadTarget, withLookupMode } from '../lib/readerTarget';
-import { hasRecipients, toggleRecipients } from '../lib/sendRecipients';
+import { hasRecipients, splitAddresses, toggleRecipients } from '../lib/sendRecipients';
 import {
   canDeleteBooks, canDownloadBooks, canEditBookCover, canReadBooks, canUploadBooks,
 } from '../lib/permissions';
@@ -104,6 +104,11 @@ function SendPanel({ formats, pending, banner, defaultEmail, otherEreaders, onSe
   const [convert, setConvert] = useState(false);
   const [emails, setEmails] = useState(defaultEmail);
   const dirty = useRef(false);
+  // Several saved addresses get a tickbox each (#1763), all ticked to start so
+  // the default is still "send to everything saved". With one address the
+  // field alone is enough, as before.
+  const savedAddresses = splitAddresses(defaultEmail);
+  const manySaved = savedAddresses.length > 1;
   // The account query (which serves kindle_mail) may resolve after the panel
   // first mounts; keep seeding the saved address until the user edits the field.
   useEffect(() => {
@@ -134,6 +139,26 @@ function SendPanel({ formats, pending, banner, defaultEmail, otherEreaders, onSe
           )}
         </label>
       </div>
+      {/* Each saved address as a tickbox, editing the recipient field above
+          (#1763); type into the field to also send to an address not saved. */}
+      {manySaved && (
+        <fieldset className={styles.sendOthers} data-testid="send-saved-ereaders">
+          <legend>{t('Saved e-reader addresses:')}</legend>
+          {savedAddresses.map((address) => (
+            <label key={address} className={styles.sendConvert}>
+              <input
+                type="checkbox"
+                checked={hasRecipients(emails, [address])}
+                onChange={(e) => {
+                  dirty.current = true;
+                  setEmails(toggleRecipients(emails, [address], e.target.checked));
+                }}
+              />
+              <span className={styles.sendAddress}>{address}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       {/* Admin-only (the server lists nobody for anyone else): tick another
           user's eReader to add it to the recipients above (#2296, fork #276). */}
       {otherEreaders.length > 0 && (
@@ -161,7 +186,10 @@ function SendPanel({ formats, pending, banner, defaultEmail, otherEreaders, onSe
         </label>
         <button
           className={styles.actionPrimary}
-          disabled={pending || !format}
+          // An empty field means "your saved address" to the server, which with
+          // several saved would send to all of them — not what unticking every
+          // box means, so nothing to send until one is ticked or typed.
+          disabled={pending || !format || (manySaved && !emails.trim())}
           onClick={() => onSend(format, convert, emails.trim())}
         >
           {pending ? t('Sending…') : t('Send')}
@@ -421,6 +449,7 @@ export function BookDetail() {
   const canEditCover = canEditBookCover(me, inLibrary);
   const toggleRead = useToggleRead(id);
   const stopReading = useStopReading(id);
+  const clearPosition = useClearReadingPosition(id);
   const setReadingStatus = useSetReadingStatus(id);
   const resetReadingStatus = setReadingStatus.reset;
   useEffect(() => { resetReadingStatus(); }, [id, resetReadingStatus]);
@@ -577,6 +606,19 @@ export function BookDetail() {
         onSuccess: () => announce(t('Removed from Currently Reading.')),
         onError: () => announce(t('Could not remove this book from Currently Reading.'), { assertive: true }),
       }), testId: 'menu-stop-reading',
+    });
+  }
+  if (canAccessBook && !me?.role?.anonymous) {
+    menuItems.push({
+      id: 'clear-position', label: t('Clear reading position'),
+      icon: <RotateCcw size={15} />, disabled: clearPosition.isPending,
+      onSelect: () => {
+        if (!window.confirm(t('Clear your saved reading position for "{title}" in the web reader, on your Kobo and in KOReader? Your read status is not changed. A device that still holds its own position can send it back the next time it syncs.', { title: book.title }))) return;
+        clearPosition.mutate(undefined, {
+          onSuccess: () => announce(t('Reading position cleared.')),
+          onError: () => announce(t('Could not clear the reading position.'), { assertive: true }),
+        });
+      }, testId: 'menu-clear-position',
     });
   }
   if (inLibrary) {

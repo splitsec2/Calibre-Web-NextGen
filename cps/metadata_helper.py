@@ -18,6 +18,7 @@ from cps.metadata_constants import (
 )
 from cps.search_metadata import cl as metadata_providers
 from cps.cwa_db_loader import load_cwa_db
+from cps.services.isbn import ISBN_IDENTIFIER_TYPES, isbn13, is_valid as isbn_is_valid, normalize as normalize_isbn
 CWA_DB = load_cwa_db().CWA_DB
 
 log = logger.create()
@@ -84,7 +85,7 @@ def fetch_and_apply_metadata(book_id: int, user_enabled: bool = False) -> bool:
         for provider_id in provider_hierarchy:
             # Check if explicitly disabled (default is enabled if not specified)
             from cps.metadata_constants import metadata_provider_enabled
-            is_enabled = metadata_provider_enabled(provider_id, enabled_map)
+            is_enabled = metadata_provider_enabled(provider_id, enabled_map, provider_hierarchy)
             if not is_enabled:
                 log.debug(f"Provider {provider_id} is globally disabled")
                 continue
@@ -103,16 +104,32 @@ def fetch_and_apply_metadata(book_id: int, user_enabled: bool = False) -> bool:
                 
                 # Search for metadata
                 results = provider.search(search_query, "", "en")
-                if not results or len(results) == 0:
-                    continue
-                    
+
                 # Prefer the candidate whose ISBN matches the book's existing ISBN
                 # over a blind first result (fork #402), and refuse a candidate
                 # that isn't plausibly this book at all (fork #1164).
                 metadata = _select_metadata_result(
                     results, book_isbn,
                     book_title=book.title, book_authors=book.authors,
-                )
+                ) if results else None
+
+                # A title search can miss when the library spells the title
+                # differently from the catalog (e.g. without diacritics). A
+                # provider that understands "isbn:<isbn>" gets a second try by
+                # the book's own ISBN, under the same confidence gate.
+                if (metadata is None and getattr(provider, "SUPPORTS_ISBN_QUERY", False) is True
+                        and (isbn_query := normalize_isbn(book_isbn))):
+                    log.debug(f"Retrying {provider.__name__} by ISBN {isbn_query}")
+                    isbn_results = provider.search(f"isbn:{isbn_query}", "", "en")
+                    if isbn_results:
+                        results = isbn_results
+                        metadata = _select_metadata_result(
+                            isbn_results, book_isbn,
+                            book_title=book.title, book_authors=book.authors,
+                        )
+
+                if not results:
+                    continue
                 if metadata is None:
                     log.info(
                         f"No confident match from {provider.__name__} for book: "
@@ -341,6 +358,14 @@ def _apply_metadata_to_book(book, metadata, calibre_db_instance) -> bool:
         if (cwa_settings.get('auto_metadata_update_identifiers', True) and
             hasattr(metadata, 'identifiers') and metadata.identifiers):
             for identifier_type, identifier_value in metadata.identifiers.items():
+                if (identifier_type and identifier_value
+                        and identifier_type.lower() in ISBN_IDENTIFIER_TYPES
+                        and not isbn_is_valid(identifier_value)):
+                    log.info(
+                        f"Auto metadata fetch: skipped {identifier_type} {identifier_value!r} "
+                        f"for book {book.id}, it fails the ISBN check digit"
+                    )
+                    continue
                 if identifier_type and identifier_value:
                     # Check if identifier already exists
                     existing = False
@@ -506,11 +531,6 @@ def _apply_cover_from_metadata(book, metadata):
     return False
 
 
-def _normalize_isbn(value):
-    """Strip separators and upper-case so ISBNs compare regardless of formatting."""
-    return "".join(ch for ch in str(value) if ch.isalnum()).upper()
-
-
 # Trailing words that name the kind of series rather than the series itself:
 # "Dune Chronicles" is the library's "Dune", "Red Rising Saga" its "Red Rising".
 _SERIES_KIND_WORDS = frozenset({
@@ -522,9 +542,9 @@ _SERIES_KIND_WORDS = frozenset({
 _SERIES_FILL_LIMIT = 3
 
 # Series-capable providers the fill asks even when the configured order leaves
-# them out: both carry series data of their own. Any other provider (Amazon,
-# Goodreads and the rest scrape pages that throttle bots) is asked only when
-# the administrator put it in the order.
+# them out: both carry series data of their own. Other providers, including
+# the opt-in Wikidata service, are asked only when the administrator put them
+# in the order.
 _SERIES_FILL_EXTRAS = ("hardcover", "kobo")
 
 # The fill has not run yet for this book (None means it ran and found nothing).
@@ -644,7 +664,7 @@ def _find_missing_series_unguarded(book, search_query, applied_provider_id, prov
     for provider_id in ordered:
         provider = by_id[provider_id]
         if (provider_id == applied_provider_id or not getattr(provider, "FILLS_SERIES", False)
-                or not provider.active or not metadata_provider_enabled(provider_id, enabled_map)):
+                or not provider.active or not metadata_provider_enabled(provider_id, enabled_map, provider_hierarchy)):
             continue
         if asked >= _SERIES_FILL_LIMIT:
             break
@@ -666,15 +686,21 @@ def _find_missing_series_unguarded(book, search_query, applied_provider_id, prov
 
 
 def _book_isbn(book):
-    """Return the book's existing ISBN (preferring ISBN-13) or None (fork #402)."""
-    isbn13 = isbn = None
+    """Return the book's existing ISBN (preferring ISBN-13) or None (fork #402).
+
+    One whose check digit is valid wins over one that fails it, so a bad
+    ``isbn13`` value does not hide a good ``isbn``.
+    """
+    candidates = []
     for ident in (getattr(book, "identifiers", None) or []):
         itype = (getattr(ident, "type", "") or "").lower()
-        if itype in ("isbn13", "isbn_13"):
-            isbn13 = ident.val
-        elif itype == "isbn":
-            isbn = ident.val
-    return isbn13 or isbn
+        if itype in ISBN_IDENTIFIER_TYPES:
+            candidates.append((itype not in ("isbn13", "isbn_13"), ident.val))
+    candidates.sort(key=lambda candidate: candidate[0])
+    for _, candidate in candidates:
+        if candidate and isbn_is_valid(candidate):
+            return candidate
+    return next((value for _, value in candidates if value), None)
 
 
 # How close two titles must be, when their identifying words are NOT identical,
@@ -895,13 +921,15 @@ def _select_metadata_result(results, book_isbn, book_title=None, book_authors=No
     kept, so the gate is only ever as strong as the caller. ``fetch_and_apply_
     metadata`` always passes them and a test pins that call site.
     """
-    if book_isbn:
-        target = _normalize_isbn(book_isbn)
+    # Both sides are compared as checksum-valid ISBN-13s: an ISBN-10 matches
+    # its ISBN-13, and a value that fails its check digit matches nothing.
+    target = isbn13(book_isbn) if book_isbn else None
+    if target:
         for result in results:
             identifiers = getattr(result, "identifiers", None) or {}
-            for key in ("isbn", "isbn13", "isbn_13", "isbn10"):
+            for key in ISBN_IDENTIFIER_TYPES:
                 candidate = identifiers.get(key)
-                if candidate and _normalize_isbn(candidate) == target:
+                if candidate and isbn13(candidate) == target:
                     return result
 
     if not book_title:

@@ -37,10 +37,21 @@ Deliberately dependency-free, like :mod:`app_paths`: these run before the Flask
 stack is usable.
 """
 
-import grp
 import os
-import pwd
 import subprocess
+
+# pwd/grp are POSIX-only: on Windows they do not exist, and the bare imports
+# made every script that imports this module die with ModuleNotFoundError at
+# startup (auto_library, cover_enforcer, ingest_processor, convert_library)
+# before any of the "no service account -> skip chown" logic could run.
+# Windows is definitionally "not the container": service_ids() returning None
+# is the same normal source-install outcome the KeyError path already models.
+try:
+    import grp
+    import pwd
+except ImportError:  # pragma: no cover — Windows
+    grp = None
+    pwd = None
 
 __all__ = [
     "DEFAULT_SERVICE_USER",
@@ -61,6 +72,9 @@ def service_ids():
     ``None`` means "this is not the container" — a source install, a CI runner,
     a dev checkout. Callers skip the chown; they do not report a failure.
     """
+    if pwd is None or grp is None:
+        # POSIX account lookups do not exist on this platform (Windows).
+        return None
     user = os.environ.get("CWA_SERVICE_USER", DEFAULT_SERVICE_USER).strip()
     group = os.environ.get("CWA_SERVICE_GROUP", DEFAULT_SERVICE_GROUP).strip()
     if not user or not group:
@@ -85,13 +99,14 @@ def network_share_mode():
     )
 
 
-def chown_to_service_user(path, label, recursive=True, respect_network_share_mode=True, log=print):
+def chown_to_service_user(
+    path, label, recursive=True, respect_network_share_mode=True, log=print, *, skip_matching=False
+):
     """Give ``path`` to the service account, skipping cleanly when we cannot.
 
-    Returns True only when a chown actually ran and succeeded. The three
-    skip paths (no service account, NETWORK_SHARE_MODE, chown failed) all
-    return False and say which one applied, so a source install's log reads as
-    a decision rather than a fault.
+    Return True on success, including a recursive check that finds nothing to
+    change. Return False with a log message if ownership work is skipped or fails.
+    With skip_matching, a recursive walk changes only entries whose ownership differs.
 
     ``log`` takes the caller's own emitter — ``convert_library`` needs its
     ``print_and_log`` so these lines reach the run log like everything else.
@@ -111,14 +126,23 @@ def chown_to_service_user(path, label, recursive=True, respect_network_share_mod
         return False
 
     uid, gid = ids
-    command = ["chown"]
-    if recursive:
-        command.append("-R")
-    # `--` so a path is never parsed as an option. dirs.json is the operator's
-    # file rather than anything reachable from the web, so this is not an
-    # exploit path, but a library directory whose name begins with `-` should
-    # fail as a missing file rather than turn into a flag.
-    command += [f"{uid}:{gid}", "--", str(path)]
+    owner = f"{uid}:{gid}"
+    if recursive and skip_matching:
+        # Prefix relative paths so find treats even "-library" as a path.
+        root = str(path)
+        if root and not os.path.isabs(root):
+            root = os.path.join(".", root)
+        # Match chown -R's symlink handling by inspecting and changing the link itself.
+        command = [
+            "find", "-P", root,
+            "(", "!", "-uid", str(uid), "-o", "!", "-gid", str(gid), ")",
+            "-exec", "chown", "-h", "--", owner, "{}", "+",
+        ]
+    else:
+        command = ["chown"]
+        if recursive:
+            command.append("-R")
+        command += [owner, "--", str(path)]
     try:
         subprocess.run(command, check=True)
         return True
